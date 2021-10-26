@@ -5,6 +5,7 @@
 # License: BSD-3-Clause
 
 from collections import Counter
+from contextlib import nullcontext
 import os
 import queue
 import sys
@@ -420,7 +421,11 @@ class Kit2FiffModel(HasPrivateTraits):
                      allow_unknown_format=self.allow_unknown_format)
 
         if np.any(self.fid):
-            with raw.info._unlock():
+            try:
+                ctx = raw.info._unlock()
+            except AttributeError:
+                ctx = nullcontext()
+            with ctx:
                 raw.info['dig'] = _make_dig_points(self.fid[0], self.fid[1],
                                                    self.fid[2], self.elp,
                                                    self.hsp)
