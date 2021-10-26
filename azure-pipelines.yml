@@ -38,19 +38,18 @@ stages:
   - job: Style
     pool:
       vmImage: 'ubuntu-20.04'
-    variables:
-      PYTHON_VERSION: '3.9'
-      PYTHON_ARCH: 'x64'
     steps:
     - bash: echo $(COMMIT_MSG)
     - task: UsePythonVersion@0
       inputs:
-        versionSpec: $(PYTHON_VERSION)
-        architecture: $(PYTHON_ARCH)
+        versionSpec: '3.9'
         addToPath: true
       displayName: 'Get Python'
-    - script: python -m pip install --progress-bar off .[test]
+    - script: python -m pip install --progress-bar off check-manifest twine wheel pydocstyle flake8
       displayName: Install dependencies
+    - bash: |
+        make flake
+      displayName: make flake
       condition: always()
     - bash: |
         make pydocstyle
@@ -66,31 +65,28 @@ stages:
       condition: always()
 
   - job: Pytest
+    variables:
+      DISPLAY: ':99'
     strategy:
       matrix:
         Windows:
-          pool:
-            vmImage: 'VS2017-Win2016'
+          imageName: 'VS2017-Win2016'
           python.version: '3.9'
-          variables:
-            OS: windows
+          OS: windows
         macOS:
-          pool:
-            vmImage: 'macOS-11'
+          imageName: 'macOS-11'
           python.version: '3.9'
-          variables:
-            OS: macos
+          OS: macos
         Linux:
-          pool:
-            vmImage: 'ubunt-20.04'
+          imageName: 'ubuntu-20.04'
           python.version: '3.9'
-          variables:
-            OS: linux
-      maxParallel: '4'
+          OS: linux
+    pool:
+      vmImage: $(imageName)
     steps:
     - bash: |
         set -e
-        echo "##vso[task.prependpath]%CONDA%;%CONDA%\condabin;%CONDA%\Scripts;%CONDA%\Library\bin;%SystemRoot%\system32;%SystemRoot%;%SystemRoot%\System32\Wbem;"
+        echo "##vso[task.prependpath]$CONDA;$CONDA\condabin;$CONDA\Scripts;$CONDA\Library\bin;"
         git clone --depth 1 git://github.com/pyvista/gl-ci-helpers.git
         powershell gl-ci-helpers/appveyor/install_opengl.ps1
       displayName: "Windows: install OpenGL and set conda paths"
@@ -111,9 +107,9 @@ stages:
       condition: eq(variables['OS'], 'macos')
     - script: conda env update --name base --file environment.yml
       displayName: Setup MNE environment
-    - script: pip install --progress-bar off -e .[test] codecov
+    - script: pip install --progress-bar off -e .[test] codecov pooch
       displayName: Install testing requirements
-    - script: mne sys_info -pd
+    - script: mne sys_info
       displayName: 'Print config'
     - script: python -c "import mne; mne.datasets.testing.data_path(verbose=True)"
       displayName: 'Get test data'

@@ -1,0 +1,11 @@
+include *.rst
+include LICENSE
+recursive-include mne_kit_gui *.py
+recursive-include mne *.py
+recursive-include mne_kit_gui/help *.json
+exclude Makefile
+exclude .coveragerc
+exclude *.yml
+exclude ignore_words.txt
+recursive-exclude mne_kit_gui *.pyc
+recursive-exclude mne_kit_gui/tests/data *

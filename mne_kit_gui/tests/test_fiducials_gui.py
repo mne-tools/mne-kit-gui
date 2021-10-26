@@ -7,14 +7,10 @@ import os.path as op
 
 from numpy.testing import assert_array_equal
 
-from mne_kit_gui._utils import requires_mayavi, traits_test
 
-
-@requires_mayavi
-@traits_test
 def test_mri_model(subjects_dir_tmp):
     """Test MRIHeadWithFiducialsModel Traits Model."""
-    from mne.gui._fiducials_gui import MRIHeadWithFiducialsModel
+    from mne_kit_gui._fiducials_gui import MRIHeadWithFiducialsModel
     tgt_fname = op.join(subjects_dir_tmp, 'test-fiducials.fif')
 
     # Remove the two files that will make the fiducials okay via MNI estimation

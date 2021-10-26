@@ -6,6 +6,7 @@
 
 import os
 
+from mne.utils import verbose, get_config
 from ._utils import _check_mayavi_version
 from ._backend import _testing_mode
 

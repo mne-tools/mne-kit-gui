@@ -2,27 +2,24 @@
 #
 # License: BSD-3-Clause
 
-import os
+import os.path as op
 
 import numpy as np
 from numpy.testing import assert_array_equal
 
-from mne.io.kit.tests import data_dir as kit_data_dir
 from mne.io.kit import read_mrk
-from mne.utils import requires_mayavi, traits_test, modified_env
 
-mrk_pre_path = os.path.join(kit_data_dir, 'test_mrk_pre.sqd')
-mrk_post_path = os.path.join(kit_data_dir, 'test_mrk_post.sqd')
-mrk_avg_path = os.path.join(kit_data_dir, 'test_mrk.sqd')
+kit_data_dir = op.join(op.dirname(__file__), 'data')
+mrk_pre_path = op.join(kit_data_dir, 'test_mrk_pre.sqd')
+mrk_post_path = op.join(kit_data_dir, 'test_mrk_post.sqd')
+mrk_avg_path = op.join(kit_data_dir, 'test_mrk.sqd')
 
 
-@requires_mayavi
-@traits_test
 def test_combine_markers_model(tmpdir):
     """Test CombineMarkersModel Traits Model."""
-    from mne.gui._marker_gui import CombineMarkersModel
+    from mne_kit_gui._marker_gui import CombineMarkersModel
     tempdir = str(tmpdir)
-    tgt_fname = os.path.join(tempdir, 'test.txt')
+    tgt_fname = op.join(tempdir, 'test.txt')
 
     model = CombineMarkersModel()
 
@@ -69,10 +66,8 @@ def test_combine_markers_model(tmpdir):
     assert_array_equal(model.mrk3.points, points_interpolate_mrk1_mrk2)
 
 
-@requires_mayavi
-@traits_test
-def test_combine_markers_panel():
+def test_combine_markers_panel(monkeypatch):
     """Test CombineMarkersPanel."""
-    from mne.gui._marker_gui import CombineMarkersPanel
-    with modified_env(_MNE_GUI_TESTING_MODE='true'):
-        CombineMarkersPanel()
+    from mne_kit_gui._marker_gui import CombineMarkersPanel
+    monkeypatch.setenv('_MNE_GUI_TESTING_MODE', 'true')
+    CombineMarkersPanel()
