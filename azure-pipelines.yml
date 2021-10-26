@@ -107,7 +107,10 @@ stages:
       condition: eq(variables['OS'], 'macos')
     - script: conda env update --name base --file environment.yml
       displayName: Setup MNE environment
-    - script: pip install --progress-bar off -e .[test] codecov https://github.com/mne-tools/mne-python/zipball/main
+    - bash: |
+        set -e
+        conda remove mne-base
+        pip install --progress-bar off -e .[test] codecov https://github.com/mne-tools/mne-python/zipball/main pooch
       displayName: Install testing requirements
     - script: mne sys_info -pd
       displayName: 'Print config'
