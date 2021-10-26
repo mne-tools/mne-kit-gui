@@ -7,5 +7,5 @@ dependencies:
 - numpy
 - scipy
 - mayavi
-- pyqt
+- pyqt>=5.12
 - mne-base
