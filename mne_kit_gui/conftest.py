@@ -28,6 +28,7 @@ def pytest_configure(config):
     ignore:.*np\.loads is deprecated.*:DeprecationWarning
     ignore:.*metadata has been deprecated.*:DeprecationWarning
     ignore:^numpy\.ufunc size changed.*:RuntimeWarning
+    ignore:.*invalid escape sequence.*:
     always::ResourceWarning
     """  # noqa: E501
     for warning_line in warning_lines.split('\n'):
