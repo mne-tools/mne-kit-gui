@@ -34,7 +34,7 @@ INSTALL_REQUIRES = [
 ]
 TEST_REQUIRES = [
     'flake8', 'pydocstyle', 'pytest', 'pytest-cov', 'check-manifest', 'twine',
-    'wheel',
+    'wheel', 'pyvista',
 ]
 CLASSIFIERS = ['Intended Audience :: Science/Research',
                'Intended Audience :: Developers',
