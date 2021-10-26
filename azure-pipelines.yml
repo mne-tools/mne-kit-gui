@@ -49,9 +49,8 @@ stages:
         architecture: $(PYTHON_ARCH)
         addToPath: true
       displayName: 'Get Python'
-    - script: python -m pip install --progress-bar off .[test]
+    - script: python -m pip install --progress-bar off check-manifest twine pydocstyle flake8
       displayName: Install dependencies
-      condition: always()
     - bash: |
         make pydocstyle
       displayName: make pydocstyle
