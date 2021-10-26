@@ -33,7 +33,8 @@ INSTALL_REQUIRES = [
     'mne>=0.23',  # TODO: Should be 0.24
 ]
 TEST_REQUIRES = [
-    'flake8', 'pydocstyle', 'pytest', 'pytest-cov',
+    'flake8', 'pydocstyle', 'pytest', 'pytest-cov', 'check-manifest', 'twine',
+    'wheel',
 ]
 CLASSIFIERS = ['Intended Audience :: Science/Research',
                'Intended Audience :: Developers',
