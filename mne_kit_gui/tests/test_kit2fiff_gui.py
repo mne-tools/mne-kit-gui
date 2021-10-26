@@ -2,28 +2,28 @@
 #
 # License: BSD-3-Clause
 
-import os
+import os.path as op
 
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
 
 import mne
-from mne.io.kit.tests import data_dir as kit_data_dir
 from mne.io import read_raw_fif
 
-mrk_pre_path = os.path.join(kit_data_dir, 'test_mrk_pre.sqd')
-mrk_post_path = os.path.join(kit_data_dir, 'test_mrk_post.sqd')
-sqd_path = os.path.join(kit_data_dir, 'test.sqd')
-hsp_path = os.path.join(kit_data_dir, 'test_hsp.txt')
-fid_path = os.path.join(kit_data_dir, 'test_elp.txt')
-fif_path = os.path.join(kit_data_dir, 'test_bin_raw.fif')
+kit_data_dir = op.join(op.dirname(__file__), 'data')
+mrk_pre_path = op.join(kit_data_dir, 'test_mrk_pre.sqd')
+mrk_post_path = op.join(kit_data_dir, 'test_mrk_post.sqd')
+sqd_path = op.join(kit_data_dir, 'test.sqd')
+hsp_path = op.join(kit_data_dir, 'test_hsp.txt')
+fid_path = op.join(kit_data_dir, 'test_elp.txt')
+fif_path = op.join(kit_data_dir, 'test_bin_raw.fif')
 
 
 def test_kit2fiff_model(tmpdir):
     """Test Kit2Fiff model."""
     from mne.gui._kit2fiff_gui import Kit2FiffModel
     tempdir = str(tmpdir)
-    tgt_fname = os.path.join(tempdir, 'test-raw.fif')
+    tgt_fname = op.join(tempdir, 'test-raw.fif')
 
     model = Kit2FiffModel()
     assert not model.can_save

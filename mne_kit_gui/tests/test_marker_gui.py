@@ -2,24 +2,24 @@
 #
 # License: BSD-3-Clause
 
-import os
+import os.path as op
 
 import numpy as np
 from numpy.testing import assert_array_equal
 
-from mne.io.kit.tests import data_dir as kit_data_dir
 from mne.io.kit import read_mrk
 
-mrk_pre_path = os.path.join(kit_data_dir, 'test_mrk_pre.sqd')
-mrk_post_path = os.path.join(kit_data_dir, 'test_mrk_post.sqd')
-mrk_avg_path = os.path.join(kit_data_dir, 'test_mrk.sqd')
+kit_data_dir = op.join(op.dirname(__file__), 'data')
+mrk_pre_path = op.join(kit_data_dir, 'test_mrk_pre.sqd')
+mrk_post_path = op.join(kit_data_dir, 'test_mrk_post.sqd')
+mrk_avg_path = op.join(kit_data_dir, 'test_mrk.sqd')
 
 
 def test_combine_markers_model(tmpdir):
     """Test CombineMarkersModel Traits Model."""
     from mne.gui._marker_gui import CombineMarkersModel
     tempdir = str(tmpdir)
-    tgt_fname = os.path.join(tempdir, 'test.txt')
+    tgt_fname = op.join(tempdir, 'test.txt')
 
     model = CombineMarkersModel()
 
