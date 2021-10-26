@@ -69,24 +69,23 @@ stages:
     strategy:
       matrix:
         Windows:
-          pool:
-            vmImage: 'VS2017-Win2016'
+          imageName: 'VS2017-Win2016'
           python.version: '3.9'
           variables:
             OS: windows
         macOS:
-          pool:
-            vmImage: 'macOS-11'
+          imageName: 'macOS-11'
           python.version: '3.9'
           variables:
             OS: macos
         Linux:
-          pool:
-            vmImage: 'ubunt-20.04'
+          imageName: 'ubunt-20.04'
           python.version: '3.9'
           variables:
             OS: linux
       maxParallel: '4'
+    pool:
+      vmImage: $(imageName)
     steps:
     - bash: |
         set -e
