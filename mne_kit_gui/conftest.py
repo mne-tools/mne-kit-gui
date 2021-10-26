@@ -15,6 +15,8 @@ subjects_dir = op.join(data_path, 'subjects')
 
 def pytest_configure(config):
     """Configure pytest options."""
+    # Fixtures
+    config.addinivalue_line('usefixtures', 'traits_test')
     warning_lines = r"""
     error::
     ignore:.*in an Any trait will be shared.*:DeprecationWarning
@@ -25,6 +27,15 @@ def pytest_configure(config):
         warning_line = warning_line.strip()
         if warning_line and not warning_line.startswith('#'):
             config.addinivalue_line('filterwarnings', warning_line)
+
+
+@pytest.fixture(scope='session')
+def traits_test():
+    """Context to raise errors in trait handlers."""
+    from traits.api import push_exception_handler
+    push_exception_handler(reraise_exceptions=True)
+    yield
+    push_exception_handler(reraise_exceptions=False)
 
 
 @pytest.fixture(scope='function', params=[testing._pytest_param()])

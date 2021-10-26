@@ -4,9 +4,7 @@
 #
 # License: BSD-3-Clause
 
-from contextlib import contextmanager
 from distutils.version import LooseVersion
-from functools import wraps
 import sys
 import warnings
 
@@ -101,30 +99,6 @@ def _oct_glyph(glyph_source, transform):
         trp.update()
         gs = trp
     glyph_source.glyph_source = gs
-
-
-@contextmanager
-def traits_test_context():
-    """Context to raise errors in trait handlers."""
-    try:
-        from traits.api import push_exception_handler
-    except Exception:
-        yield
-    else:
-        push_exception_handler(reraise_exceptions=True)
-        try:
-            yield
-        finally:
-            push_exception_handler(reraise_exceptions=False)
-
-
-def traits_test(test_func):
-    """Raise errors in trait handlers (decorator)."""
-    @wraps(test_func)
-    def dec(*args, **kwargs):
-        with traits_test_context():
-            return test_func(*args, **kwargs)
-    return dec
 
 
 def requires_mayavi(function):

@@ -10,7 +10,6 @@ import pytest
 
 import mne
 from mne.datasets import testing
-from mne.utils import requires_mayavi, traits_test, modified_env
 from mne.channels import read_dig_fif
 
 data_path = testing.data_path(download=False)
@@ -22,8 +21,6 @@ fid_path = op.join(op.dirname(mne.__file__), 'data', 'fsaverage',
 
 
 @testing.requires_testing_data
-@requires_mayavi
-@traits_test
 def test_bem_source():
     """Test SurfaceSource."""
     from mne.gui._file_traits import SurfaceSource
@@ -38,8 +35,6 @@ def test_bem_source():
 
 
 @testing.requires_testing_data
-@requires_mayavi
-@traits_test
 def test_fiducials_source():
     """Test FiducialsSource."""
     from mne.gui._file_traits import FiducialsSource
@@ -57,8 +52,6 @@ def test_fiducials_source():
 
 
 @testing.requires_testing_data
-@requires_mayavi
-@traits_test
 def test_digitization_source(tmpdir):
     """Test DigSource."""
     from mne.gui._file_traits import DigSource
@@ -105,8 +98,6 @@ def test_digitization_source(tmpdir):
 
 
 @testing.requires_testing_data
-@requires_mayavi
-@traits_test
 def test_subject_source():
     """Test SubjectSelector."""
     from mne.gui._file_traits import MRISubjectSource
@@ -118,9 +109,7 @@ def test_subject_source():
 
 
 @testing.requires_testing_data
-@requires_mayavi
-@traits_test
-def test_subject_source_with_fsaverage(tmpdir):
+def test_subject_source_with_fsaverage(tmpdir, monkeypatch):
     """Test SubjectSelector."""
     from mne.gui._file_traits import MRISubjectSource
     tempdir = str(tmpdir)
@@ -133,6 +122,6 @@ def test_subject_source_with_fsaverage(tmpdir):
     assert mri.can_create_fsaverage
     assert not op.isdir(op.join(tempdir, 'fsaverage'))
     # fake FREESURFER_HOME
-    with modified_env(FREESURFER_HOME=data_path):
-        mri.create_fsaverage()
+    monkeypatch.setenv('FREESURFER_HOME', data_path)
+    mri.create_fsaverage()
     assert op.isdir(op.join(tempdir, 'fsaverage'))

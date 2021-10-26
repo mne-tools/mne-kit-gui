@@ -7,7 +7,7 @@ dependencies:
 - numpy
 - scipy
 - mayavi
-- pyqt5
+- pyqt
 - pip:
   - https://github.com/mne-tools/mne-python/zipball/main
 #  - mne-kit-gui

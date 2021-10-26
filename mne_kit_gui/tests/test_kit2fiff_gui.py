@@ -10,7 +10,6 @@ from numpy.testing import assert_allclose, assert_array_equal
 import mne
 from mne.io.kit.tests import data_dir as kit_data_dir
 from mne.io import read_raw_fif
-from mne.utils import requires_mayavi, traits_test, modified_env
 
 mrk_pre_path = os.path.join(kit_data_dir, 'test_mrk_pre.sqd')
 mrk_post_path = os.path.join(kit_data_dir, 'test_mrk_post.sqd')
@@ -20,8 +19,6 @@ fid_path = os.path.join(kit_data_dir, 'test_elp.txt')
 fif_path = os.path.join(kit_data_dir, 'test_bin_raw.fif')
 
 
-@requires_mayavi
-@traits_test
 def test_kit2fiff_model(tmpdir):
     """Test Kit2Fiff model."""
     from mne.gui._kit2fiff_gui import Kit2FiffModel
@@ -112,48 +109,47 @@ def test_kit2fiff_model(tmpdir):
     assert model.sqd_file == ""
 
 
-@requires_mayavi
-@traits_test
-def test_kit2fiff_gui(tmpdir):
+def test_kit2fiff_gui(tmpdir, monkeypatch):
     """Test Kit2Fiff GUI."""
     home_dir = str(tmpdir)
-    with modified_env(_MNE_GUI_TESTING_MODE='true',
-                      _MNE_FAKE_HOME_DIR=home_dir):
-        from pyface.api import GUI
-        gui = GUI()
-        gui.process_events()
+    monkeypatch.setenv('_MNE_GUI_TESTING_MODE', 'true')
+    monkeypatch.setenv('_MNE_FAKE_HOME_DIR', home_dir)
 
-        ui, frame = mne.gui.kit2fiff()
-        assert not frame.model.can_save
-        assert frame.model.stim_threshold == 1.
-        frame.model.stim_threshold = 10.
-        frame.model.stim_chs = 'save this!'
-        frame.save_config(home_dir)
-        ui.dispose()
+    from pyface.api import GUI
+    gui = GUI()
+    gui.process_events()
 
-        gui.process_events()
+    ui, frame = mne.gui.kit2fiff()
+    assert not frame.model.can_save
+    assert frame.model.stim_threshold == 1.
+    frame.model.stim_threshold = 10.
+    frame.model.stim_chs = 'save this!'
+    frame.save_config(home_dir)
+    ui.dispose()
 
-        # test setting persistence
-        ui, frame = mne.gui.kit2fiff()
-        assert frame.model.stim_threshold == 10.
-        assert frame.model.stim_chs == 'save this!'
+    gui.process_events()
 
-        # set and reset marker file
-        points = [[-0.084612, 0.021582, -0.056144],
-                  [0.080425, 0.021995, -0.061171],
-                  [-0.000787, 0.105530, 0.014168],
-                  [-0.047943, 0.091835, 0.010240],
-                  [0.042976, 0.094380, 0.010807]]
-        assert_array_equal(frame.marker_panel.mrk1_obj.points, 0)
-        assert_array_equal(frame.marker_panel.mrk3_obj.points, 0)
-        frame.model.markers.mrk1.file = mrk_pre_path
-        assert_allclose(frame.marker_panel.mrk1_obj.points, points, atol=1e-6)
-        assert_allclose(frame.marker_panel.mrk3_obj.points, points, atol=1e-6)
-        frame.marker_panel.mrk1_obj.label = True
-        frame.marker_panel.mrk1_obj.label = False
-        frame.kit2fiff_panel.clear_all = True
-        assert_array_equal(frame.marker_panel.mrk1_obj.points, 0)
-        assert_array_equal(frame.marker_panel.mrk3_obj.points, 0)
-        ui.dispose()
+    # test setting persistence
+    ui, frame = mne.gui.kit2fiff()
+    assert frame.model.stim_threshold == 10.
+    assert frame.model.stim_chs == 'save this!'
 
-        gui.process_events()
+    # set and reset marker file
+    points = [[-0.084612, 0.021582, -0.056144],
+                [0.080425, 0.021995, -0.061171],
+                [-0.000787, 0.105530, 0.014168],
+                [-0.047943, 0.091835, 0.010240],
+                [0.042976, 0.094380, 0.010807]]
+    assert_array_equal(frame.marker_panel.mrk1_obj.points, 0)
+    assert_array_equal(frame.marker_panel.mrk3_obj.points, 0)
+    frame.model.markers.mrk1.file = mrk_pre_path
+    assert_allclose(frame.marker_panel.mrk1_obj.points, points, atol=1e-6)
+    assert_allclose(frame.marker_panel.mrk3_obj.points, points, atol=1e-6)
+    frame.marker_panel.mrk1_obj.label = True
+    frame.marker_panel.mrk1_obj.label = False
+    frame.kit2fiff_panel.clear_all = True
+    assert_array_equal(frame.marker_panel.mrk1_obj.points, 0)
+    assert_array_equal(frame.marker_panel.mrk3_obj.points, 0)
+    ui.dispose()
+
+    gui.process_events()
