@@ -77,10 +77,9 @@ stages:
           python.version: '3.9'
           OS: macos
         Linux:
-          imageName: 'ubunt-20.04'
+          imageName: 'ubuntu-20.04'
           python.version: '3.9'
           OS: linux
-      maxParallel: '4'
     pool:
       vmImage: $(imageName)
     steps:
