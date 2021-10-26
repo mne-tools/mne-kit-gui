@@ -38,19 +38,19 @@ stages:
   - job: Style
     pool:
       vmImage: 'ubuntu-20.04'
-    variables:
-      PYTHON_VERSION: '3.9'
-      PYTHON_ARCH: 'x64'
     steps:
     - bash: echo $(COMMIT_MSG)
     - task: UsePythonVersion@0
       inputs:
-        versionSpec: $(PYTHON_VERSION)
-        architecture: $(PYTHON_ARCH)
+        versionSpec: '3.9'
         addToPath: true
       displayName: 'Get Python'
-    - script: python -m pip install --progress-bar off check-manifest twine pydocstyle flake8
+    - script: python -m pip install --progress-bar off check-manifest twine wheel pydocstyle flake8
       displayName: Install dependencies
+    - bash: |
+        make flake
+      displayName: make flake
+      condition: always()
     - bash: |
         make pydocstyle
       displayName: make pydocstyle
