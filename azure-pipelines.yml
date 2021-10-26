@@ -109,7 +109,7 @@ stages:
       displayName: Setup MNE environment
     - script: pip install --progress-bar off -e .[test] codecov pooch
       displayName: Install testing requirements
-    - script: mne sys_info -pd
+    - script: mne sys_info
       displayName: 'Print config'
     - script: python -c "import mne; mne.datasets.testing.data_path(verbose=True)"
       displayName: 'Get test data'
