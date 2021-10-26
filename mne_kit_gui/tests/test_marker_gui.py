@@ -17,7 +17,7 @@ mrk_avg_path = op.join(kit_data_dir, 'test_mrk.sqd')
 
 def test_combine_markers_model(tmpdir):
     """Test CombineMarkersModel Traits Model."""
-    from mne.gui._marker_gui import CombineMarkersModel
+    from mne_kit_gui._marker_gui import CombineMarkersModel
     tempdir = str(tmpdir)
     tgt_fname = op.join(tempdir, 'test.txt')
 
@@ -68,6 +68,6 @@ def test_combine_markers_model(tmpdir):
 
 def test_combine_markers_panel(monkeypatch):
     """Test CombineMarkersPanel."""
-    from mne.gui._marker_gui import CombineMarkersPanel
+    from mne_kit_gui._marker_gui import CombineMarkersPanel
     monkeypatch.setenv('_MNE_GUI_TESTING_MODE', 'true')
     CombineMarkersPanel()

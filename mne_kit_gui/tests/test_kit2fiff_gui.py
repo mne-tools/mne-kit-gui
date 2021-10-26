@@ -21,7 +21,7 @@ fif_path = op.join(kit_data_dir, 'test_bin_raw.fif')
 
 def test_kit2fiff_model(tmpdir):
     """Test Kit2Fiff model."""
-    from mne.gui._kit2fiff_gui import Kit2FiffModel
+    from mne_kit_gui._kit2fiff_gui import Kit2FiffModel
     tempdir = str(tmpdir)
     tgt_fname = op.join(tempdir, 'test-raw.fif')
 

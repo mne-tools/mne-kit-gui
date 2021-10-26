@@ -23,7 +23,7 @@ fid_path = op.join(op.dirname(mne.__file__), 'data', 'fsaverage',
 @testing.requires_testing_data
 def test_bem_source():
     """Test SurfaceSource."""
-    from mne.gui._file_traits import SurfaceSource
+    from mne_kit_gui._file_traits import SurfaceSource
 
     bem = SurfaceSource()
     assert bem.surf.rr.shape == (0, 3)
@@ -37,7 +37,7 @@ def test_bem_source():
 @testing.requires_testing_data
 def test_fiducials_source():
     """Test FiducialsSource."""
-    from mne.gui._file_traits import FiducialsSource
+    from mne_kit_gui._file_traits import FiducialsSource
 
     fid = FiducialsSource()
     fid.file = fid_path
@@ -54,7 +54,7 @@ def test_fiducials_source():
 @testing.requires_testing_data
 def test_digitization_source(tmpdir):
     """Test DigSource."""
-    from mne.gui._file_traits import DigSource
+    from mne_kit_gui._file_traits import DigSource
     tempdir = str(tmpdir)
 
     inst = DigSource()
@@ -100,7 +100,7 @@ def test_digitization_source(tmpdir):
 @testing.requires_testing_data
 def test_subject_source():
     """Test SubjectSelector."""
-    from mne.gui._file_traits import MRISubjectSource
+    from mne_kit_gui._file_traits import MRISubjectSource
 
     mri = MRISubjectSource()
     mri.subjects_dir = subjects_dir
@@ -111,7 +111,7 @@ def test_subject_source():
 @testing.requires_testing_data
 def test_subject_source_with_fsaverage(tmpdir, monkeypatch):
     """Test SubjectSelector."""
-    from mne.gui._file_traits import MRISubjectSource
+    from mne_kit_gui._file_traits import MRISubjectSource
     tempdir = str(tmpdir)
 
     mri = MRISubjectSource()
