@@ -1,0 +1,124 @@
+trigger:
+  # start a new build for every push
+  batch: False
+  branches:
+    include:
+      - 'main'
+      - 'maint/*'
+pr:
+  branches:
+    include:
+      - '*'  # must quote since "*" is a YAML reserved character; we want a string
+
+
+stages:
+
+- stage: Check
+  jobs:
+    - job: Skip
+      pool:
+        vmImage: 'ubuntu-18.04'
+      variables:
+        DECODE_PERCENTS: 'false'
+        RET: 'true'
+        BUILD_REASON: $(Build.Reason)
+      steps:
+      - bash: |
+          git_log=`git log --format=oneline -n 1 --skip=1`
+          echo "##vso[task.setvariable variable=log]$git_log"
+      - bash: echo "##vso[task.setvariable variable=RET]false"
+        condition: and(eq(variables.BUILD_REASON, 'PullRequest'), or(contains(variables.log, '[skip azp]'), contains(variables.log, '[azp skip]'), contains(variables.log, '[skip ci]'), contains(variables.log, '[ci skip]')))
+      - bash: echo "##vso[task.setvariable variable=start_main;isOutput=true]$RET"
+        name: result
+
+- stage: Main
+  condition: and(succeeded(), eq(dependencies.Check.outputs['Skip.result.start_main'], 'true'))
+  dependsOn: Check
+  jobs:
+  - job: Style
+    pool:
+      vmImage: 'ubuntu-20.04'
+    variables:
+      PYTHON_VERSION: '3.9'
+      PYTHON_ARCH: 'x64'
+    steps:
+    - bash: echo $(COMMIT_MSG)
+    - task: UsePythonVersion@0
+      inputs:
+        versionSpec: $(PYTHON_VERSION)
+        architecture: $(PYTHON_ARCH)
+        addToPath: true
+      displayName: 'Get Python'
+    - script: python -m pip install --progress-bar off .[test]
+      displayName: Install dependencies
+      condition: always()
+    - bash: |
+        make pydocstyle
+      displayName: make pydocstyle
+      condition: always()
+    - bash: |
+        make check-manifest
+      displayName: make check-manifest
+      condition: always()
+    - bash: |
+        make check-readme
+      displayName: make check-readme
+      condition: always()
+
+  - job: Pytest
+    strategy:
+      matrix:
+        Windows:
+          pool:
+            vmImage: 'VS2017-Win2016'
+          python.version: '3.9'
+          variables:
+            OS: windows
+        macOS:
+          pool:
+            vmImage: 'macOS-11'
+          python.version: '3.9'
+          variables:
+            OS: macos
+        Linux:
+          pool:
+            vmImage: 'ubunt-20.04'
+          python.version: '3.9'
+          variables:
+            OS: linux
+      maxParallel: '4'
+    steps:
+    - bash: |
+        set -e
+        echo "##vso[task.prependpath]%CONDA%;%CONDA%\condabin;%CONDA%\Scripts;%CONDA%\Library\bin;%SystemRoot%\system32;%SystemRoot%;%SystemRoot%\System32\Wbem;"
+        git clone --depth 1 git://github.com/pyvista/gl-ci-helpers.git
+        powershell gl-ci-helpers/appveyor/install_opengl.ps1
+      displayName: "Windows: install OpenGL and set conda paths"
+      condition: eq(variables['OS'], 'windows')
+    - bash: |
+        set -e
+        sudo apt update -qq
+        sudo apt install -yqq libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xfixes0 libopengl0
+        /sbin/start-stop-daemon --start --quiet --pidfile /tmp/custom_xvfb_99.pid --make-pidfile --background --exec /usr/bin/Xvfb -- :99 -screen 0 1400x900x24 -ac +extension GLX +render -noreset
+        echo "##vso[task.prependpath]$CONDA/bin"
+      displayName: "Linux: start Xvfb and set conda paths"
+      condition: eq(variables['OS'], 'linux')
+    - bash: |
+        set -e
+        echo "##vso[task.prependpath]$CONDA/bin"
+        sudo chown -R $USER $CONDA
+      displayName: "macOS: set conda paths"
+      condition: eq(variables['OS'], 'macos')
+    - script: conda env update --name base --file environment.yml
+      displayName: Setup MNE environment
+    - script: pip install --progress-bar off -e .[test] codecov
+      displayName: Install testing requirements
+    - script: mne sys_info -pd
+      displayName: 'Print config'
+    - script: python -c "import mne; mne.datasets.testing.data_path(verbose=True)"
+      displayName: 'Get test data'
+    - script: pytest --tb=short --cov=mne_kit_gui --cov-report=xml --cov-report=html -vv mne_kit_gui
+      displayName: 'Run tests'
+    - bash: bash <(curl -s https://codecov.io/bash)
+      displayName: 'Codecov'
+      condition: succeededOrFailed()

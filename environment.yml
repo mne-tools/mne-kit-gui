@@ -1,0 +1,12 @@
+name: mne-kit-gui
+channels:
+- conda-forge
+dependencies:
+- python>=3.8
+- pip
+- numpy
+- scipy
+- mayavi
+pip:
+  - https://github.com/mne-tools/mne-python/zipball/main
+#  - mne-kit-gui
