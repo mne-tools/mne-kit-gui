@@ -8,6 +8,7 @@ from distutils.version import LooseVersion
 import sys
 import warnings
 
+import numpy as np
 from mne.surface import _normalize_vectors
 from mne.utils import check_version, warn
 
