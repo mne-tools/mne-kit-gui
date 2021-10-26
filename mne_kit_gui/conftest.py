@@ -21,6 +21,13 @@ def pytest_configure(config):
     error::
     ignore:.*in an Any trait will be shared.*:DeprecationWarning
     ignore:.*Call to deprecated .* vtk.*:DeprecationWarning
+    ignore:SelectableGroups dict interface.*:DeprecationWarning
+    ignore:.*use "HasTraits\.trait_set".*:DeprecationWarning
+    ignore:.*imp module is deprecated in favour of.*:DeprecationWarning
+    ignore:.*trait handler has been deprecated.*:DeprecationWarning
+    ignore:.*np\.loads is deprecated.*:DeprecationWarning
+    ignore:.*metadata has been deprecated.*:DeprecationWarning
+    ignore:^numpy\.ufunc size changed.*:RuntimeWarning
     always::ResourceWarning
     """  # noqa: E501
     for warning_line in warning_lines.split('\n'):
