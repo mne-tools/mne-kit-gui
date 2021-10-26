@@ -66,6 +66,8 @@ stages:
       condition: always()
 
   - job: Pytest
+    variables:
+      DISPLAY: ':99'
     strategy:
       matrix:
         Windows:
@@ -85,7 +87,7 @@ stages:
     steps:
     - bash: |
         set -e
-        echo "##vso[task.prependpath]$CONDA\Scripts;"
+        echo "##vso[task.prependpath]$CONDA;$CONDA\condabin;$CONDA\Scripts;$CONDA\Library\bin;"
         git clone --depth 1 git://github.com/pyvista/gl-ci-helpers.git
         powershell gl-ci-helpers/appveyor/install_opengl.ps1
       displayName: "Windows: install OpenGL and set conda paths"
@@ -106,7 +108,7 @@ stages:
       condition: eq(variables['OS'], 'macos')
     - script: conda env update --name base --file environment.yml
       displayName: Setup MNE environment
-    - script: pip install --progress-bar off -e .[test] codecov
+    - script: pip install --progress-bar off -e .[test] codecov https://github.com/mne-tools/mne-python/zipball/main
       displayName: Install testing requirements
     - script: mne sys_info -pd
       displayName: 'Print config'
