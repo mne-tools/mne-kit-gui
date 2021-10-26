@@ -71,18 +71,15 @@ stages:
         Windows:
           imageName: 'VS2017-Win2016'
           python.version: '3.9'
-          variables:
-            OS: windows
+          OS: windows
         macOS:
           imageName: 'macOS-11'
           python.version: '3.9'
-          variables:
-            OS: macos
+          OS: macos
         Linux:
           imageName: 'ubunt-20.04'
           python.version: '3.9'
-          variables:
-            OS: linux
+          OS: linux
       maxParallel: '4'
     pool:
       vmImage: $(imageName)
