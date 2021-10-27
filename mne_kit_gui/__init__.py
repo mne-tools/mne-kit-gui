@@ -11,7 +11,7 @@ from ._utils import _check_mayavi_version
 from ._backend import _testing_mode
 
 
-__version__ = '1.0.1'
+__version__ = '1.1.dev0'
 
 
 def _initialize_gui(frame, view=None):
