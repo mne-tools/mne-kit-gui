@@ -63,7 +63,7 @@ setup(name=DISTNAME,
       zip_safe=False,  # the package can run out of an .egg file
       classifiers=CLASSIFIERS,
       packages=find_packages(),
-      package_data={'mne-kit-gui': [os.path.join('gui', 'help', '*.json')]},
+      package_data={'mne_kit_gui': [os.path.join('help', '*.json')]},
       python_requires='>=3.7',
       install_requires=INSTALL_REQUIRES,
       extras_require={
