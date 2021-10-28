@@ -11,8 +11,8 @@ pr:
       - '*'  # must quote since "*" is a YAML reserved character; we want a string
 
 schedules:
-- cron: "0 0 * * 0"
-  displayName: 'Weekly Sunday midnight build'
+- cron: "0 0 * * *"
+  displayName: 'Weekly daily midnight build'
   branches:
     include:
       - 'main'
@@ -92,6 +92,11 @@ stages:
           imageName: 'ubuntu-20.04'
           python.version: '3.9'
           OS: linux
+        Linux-dev:
+          imageName: 'ubuntu-20.04'
+          python.version: '3.9'
+          OS: linux
+          MNE: dev
     pool:
       vmImage: $(imageName)
     steps:
@@ -120,6 +125,9 @@ stages:
       displayName: Setup MNE environment
     - script: pip install --progress-bar off -e .[test] codecov pooch
       displayName: Install testing requirements
+    - script: pip install --upgrade https://github.com/mne-tools/mne-python/zipball/main
+      displayName: Install MNE-Python dev version
+      condition: eq(variables['MNE'], 'dev')
     - script: mne sys_info
       displayName: 'Print config'
     - script: python -c "import mne; mne.datasets.testing.data_path(verbose=True)"
