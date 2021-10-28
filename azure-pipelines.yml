@@ -79,7 +79,7 @@ stages:
     strategy:
       matrix:
         Windows:
-          imageName: 'VS2017-Win2016'
+          imageName: 'windows-latest'
           python.version: '3.9'
           OS: windows
         macOS:
