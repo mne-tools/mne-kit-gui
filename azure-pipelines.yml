@@ -10,6 +10,15 @@ pr:
     include:
       - '*'  # must quote since "*" is a YAML reserved character; we want a string
 
+schedules:
+- cron: "0 0 * * *"
+  displayName: 'Weekly daily midnight build'
+  branches:
+    include:
+      - 'main'
+      - 'maint/*'
+  always: 'true'
+
 
 stages:
 
@@ -31,9 +40,7 @@ stages:
       - bash: echo "##vso[task.setvariable variable=start_main;isOutput=true]$RET"
         name: result
 
-- stage: Main
-  condition: and(succeeded(), eq(dependencies.Check.outputs['Skip.result.start_main'], 'true'))
-  dependsOn: Check
+- stage: Style
   jobs:
   - job: Style
     pool:
@@ -64,13 +71,17 @@ stages:
       displayName: make check-readme
       condition: always()
 
+- stage: Main
+  condition: and(succeeded(), eq(dependencies.Check.outputs['Skip.result.start_main'], 'true'))
+  dependsOn: Check
+  jobs:
   - job: Pytest
     variables:
       DISPLAY: ':99'
     strategy:
       matrix:
         Windows:
-          imageName: 'VS2017-Win2016'
+          imageName: 'windows-latest'
           python.version: '3.9'
           OS: windows
         macOS:
@@ -81,6 +92,11 @@ stages:
           imageName: 'ubuntu-20.04'
           python.version: '3.9'
           OS: linux
+        Linux-dev:
+          imageName: 'ubuntu-20.04'
+          python.version: '3.9'
+          OS: linux
+          MNE: dev
     pool:
       vmImage: $(imageName)
     steps:
@@ -109,6 +125,9 @@ stages:
       displayName: Setup MNE environment
     - script: pip install --progress-bar off -e .[test] codecov pooch
       displayName: Install testing requirements
+    - script: pip install --upgrade https://github.com/mne-tools/mne-python/zipball/main
+      displayName: Install MNE-Python dev version
+      condition: eq(variables['MNE'], 'dev')
     - script: mne sys_info
       displayName: 'Print config'
     - script: python -c "import mne; mne.datasets.testing.data_path(verbose=True)"
