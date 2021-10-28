@@ -40,9 +40,7 @@ stages:
       - bash: echo "##vso[task.setvariable variable=start_main;isOutput=true]$RET"
         name: result
 
-- stage: Main
-  condition: and(succeeded(), eq(dependencies.Check.outputs['Skip.result.start_main'], 'true'))
-  dependsOn: Check
+- stage: Style
   jobs:
   - job: Style
     pool:
@@ -73,6 +71,10 @@ stages:
       displayName: make check-readme
       condition: always()
 
+- stage: Main
+  condition: and(succeeded(), eq(dependencies.Check.outputs['Skip.result.start_main'], 'true'))
+  dependsOn: Check
+  jobs:
   - job: Pytest
     variables:
       DISPLAY: ':99'
