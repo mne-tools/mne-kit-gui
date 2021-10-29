@@ -2,5 +2,4 @@ name: mne-kit-gui
 channels:
 - conda-forge
 dependencies:
-- pyqt>=5.12
 - mne-kit-gui
