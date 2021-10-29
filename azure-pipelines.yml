@@ -123,7 +123,7 @@ stages:
       condition: eq(variables['OS'], 'macos')
     - script: conda env update --name base --file environment.yml
       displayName: Setup MNE-KIT-GUI environment
-    - script: conda remove --force mne-kit-gui
+    - script: conda remove -yq --force mne-kit-gui
       displayName: Remove stable version of MNE-KIT-GUI
     - script: pip install --progress-bar off -e .[test] codecov pooch
       displayName: Install testing requirements
