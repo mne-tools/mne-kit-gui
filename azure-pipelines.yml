@@ -122,7 +122,9 @@ stages:
       displayName: "macOS: set conda paths"
       condition: eq(variables['OS'], 'macos')
     - script: conda env update --name base --file environment.yml
-      displayName: Setup MNE environment
+      displayName: Setup MNE-KIT-GUI environment
+    - script: conda remove -yq --force mne-kit-gui
+      displayName: Remove stable version of MNE-KIT-GUI
     - script: pip install --progress-bar off -e .[test] codecov pooch
       displayName: Install testing requirements
     - script: pip install --upgrade https://github.com/mne-tools/mne-python/zipball/main
