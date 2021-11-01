@@ -12,7 +12,7 @@ pr:
 
 schedules:
 - cron: "0 0 * * *"
-  displayName: 'Weekly daily midnight build'
+  displayName: 'Daily midnight build'
   branches:
     include:
       - 'main'
