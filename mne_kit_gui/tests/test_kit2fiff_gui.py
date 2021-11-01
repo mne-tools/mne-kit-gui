@@ -9,6 +9,7 @@ from numpy.testing import assert_allclose, assert_array_equal
 
 import mne
 from mne.io import read_raw_fif
+import mne_kit_gui
 
 kit_data_dir = op.join(op.dirname(__file__), 'data')
 mrk_pre_path = op.join(kit_data_dir, 'test_mrk_pre.sqd')
@@ -119,7 +120,7 @@ def test_kit2fiff_gui(tmpdir, monkeypatch):
     gui = GUI()
     gui.process_events()
 
-    ui, frame = mne.gui.kit2fiff()
+    ui, frame = mne_kit_gui.kit2fiff()
     assert not frame.model.can_save
     assert frame.model.stim_threshold == 1.
     frame.model.stim_threshold = 10.
@@ -130,7 +131,7 @@ def test_kit2fiff_gui(tmpdir, monkeypatch):
     gui.process_events()
 
     # test setting persistence
-    ui, frame = mne.gui.kit2fiff()
+    ui, frame = mne_kit_gui.kit2fiff()
     assert frame.model.stim_threshold == 10.
     assert frame.model.stim_chs == 'save this!'
 
