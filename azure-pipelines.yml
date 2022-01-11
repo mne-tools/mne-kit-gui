@@ -102,7 +102,7 @@ stages:
     steps:
     - bash: |
         set -e
-        echo "##vso[task.prependpath]$CONDA;$CONDA\condabin;$CONDA\Scripts;$CONDA\Library\bin;$CONDA\envs\mne-kit-gui;$CONDA\envs\mne-kit-gui\Scripts;$CONDA\envs\mne-kit-gui\Library\bin;"
+        echo "##vso[task.prependpath]$CONDA\envs\mne-kit-gui;$CONDA\envs\mne-kit-gui\Scripts;$CONDA\envs\mne-kit-gui\Library\bin;$CONDA;$CONDA\condabin;$CONDA\Scripts;$CONDA\Library\bin;"
         git clone --depth 1 https://github.com/pyvista/gl-ci-helpers.git
         powershell gl-ci-helpers/appveyor/install_opengl.ps1
       displayName: "Windows: install OpenGL and set conda paths"
