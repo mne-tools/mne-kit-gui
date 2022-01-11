@@ -102,7 +102,7 @@ stages:
     steps:
     - bash: |
         set -e
-        echo "##vso[task.prependpath]$CONDA;$CONDA\condabin;$CONDA\Scripts;$CONDA\Library\bin;"
+        echo "##vso[task.prependpath]$CONDA;$CONDA\condabin;$CONDA\Scripts;$CONDA\Library\bin;$CONDA\envs\mne-kit-gui;$CONDA\envs\mne-kit-gui\Scripts;$CONDA\envs\mne-kit-gui\Library\bin;"
         git clone --depth 1 https://github.com/pyvista/gl-ci-helpers.git
         powershell gl-ci-helpers/appveyor/install_opengl.ps1
       displayName: "Windows: install OpenGL and set conda paths"
@@ -121,9 +121,7 @@ stages:
         sudo chown -R $USER $CONDA
       displayName: "macOS: set conda paths"
       condition: eq(variables['OS'], 'macos')
-    - script: conda update -n base -c defaults conda
-      displayName: Update conda
-    - script: conda env update --name base --file environment.yml
+    - script: conda env create -f environment.yml
       displayName: Setup MNE-KIT-GUI environment
     - script: conda remove -yq --force mne-kit-gui
       displayName: Remove stable version of MNE-KIT-GUI
