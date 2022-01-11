@@ -30,6 +30,7 @@ def pytest_configure(config):
     ignore:^numpy\.ufunc size changed.*:RuntimeWarning
     ignore:.*invalid escape sequence.*:
     ignore:.*an integer is required \(got type.*:DeprecationWarning
+    ignore:.*distutils Version classes are deprecated.*:DeprecationWarning
     always::ResourceWarning
     """  # noqa: E501
     for warning_line in warning_lines.split('\n'):
