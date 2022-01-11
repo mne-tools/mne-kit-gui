@@ -121,9 +121,9 @@ stages:
         sudo chown -R $USER $CONDA
       displayName: "macOS: set conda paths"
       condition: eq(variables['OS'], 'macos')
-    - script: |
-        conda update -n base -c defaults conda
-        conda env update --name base --file environment.yml
+    - script: conda update -n base -c defaults conda
+      displayName: Update conda
+    - script: conda env update --name base --file environment.yml
       displayName: Setup MNE-KIT-GUI environment
     - script: conda remove -yq --force mne-kit-gui
       displayName: Remove stable version of MNE-KIT-GUI
