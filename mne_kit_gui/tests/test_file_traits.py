@@ -122,6 +122,6 @@ def test_subject_source_with_fsaverage(tmpdir, monkeypatch):
     assert mri.can_create_fsaverage
     assert not op.isdir(op.join(tempdir, 'fsaverage'))
     # fake FREESURFER_HOME
-    monkeypatch.setenv('FREESURFER_HOME', data_path)
+    monkeypatch.setenv('FREESURFER_HOME', str(data_path))
     mri.create_fsaverage()
     assert op.isdir(op.join(tempdir, 'fsaverage'))
