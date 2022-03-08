@@ -129,7 +129,7 @@ stages:
       condition: eq(variables['OS'], 'macos')
     - bash: |
         set -e
-        conda install -c conda-forge mamba
+        CONDA_PREFIX=$CONDA conda install -n base -c conda-forge mamba
         mamba env create -f environment.yml
       displayName: Setup MNE-KIT-GUI environment
     - script: conda remove -yq --force mne-kit-gui
