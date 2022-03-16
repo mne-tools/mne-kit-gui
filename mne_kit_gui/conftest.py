@@ -33,6 +33,7 @@ def pytest_configure(config):
     ignore:.*distutils Version classes are deprecated.*:DeprecationWarning
     ignore:.*to a dtype is deprecated.*:DeprecationWarning
     ignore:.*is a deprecated alias for the builtin.*:DeprecationWarning
+    ignore:.*deprecated method GetIsPicking.*:DeprecationWarning
     always::ResourceWarning
     """  # noqa: E501
     for warning_line in warning_lines.split('\n'):
