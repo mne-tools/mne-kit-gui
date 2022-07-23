@@ -83,7 +83,7 @@ def test_digitization_source(tmpdir):
     # EGI MFF
     inst.file = op.join(data_path, 'EGI', 'test_egi.mff')
     assert len(inst.points) == 0
-    assert len(inst.eeg_points) == 130
+    assert len(inst.eeg_points) in (129, 130)  # old vs new MNE
     assert_allclose(inst.lpa * 1000, [[-67.1, 0, 0]], atol=0.1)
     assert_allclose(inst.nasion * 1000, [[0.0, 103.6, 0]], atol=0.1)
     assert_allclose(inst.rpa * 1000, [[67.1, 0, 0]], atol=0.1)
