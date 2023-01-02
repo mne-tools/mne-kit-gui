@@ -4,10 +4,8 @@
 # License: BSD-3-Clause
 
 import os
-import sys
 
 from mne.utils import warn
-from ._utils import _check_pyqt5_version
 
 
 def _get_pyface_backend():
@@ -35,12 +33,7 @@ def _get_pyface_backend():
 def _check_backend():
     from pyface.api import warning
     backend = _get_pyface_backend()
-    if backend == 'qt4':
-        _check_pyqt5_version()
-        # QT 5 macOS 11 compatibility:
-        if sys.platform == 'darwin' and 'QT_MAC_WANTS_LAYER' not in os.environ:
-            os.environ['QT_MAC_WANTS_LAYER'] = '1'
-    else:
+    if not backend.startswith('qt'):
         msg = ("Using the currently selected Pyface backend %s is not "
                "recommended, and it might not work properly. We recommend "
                "using 'qt4' which can be enabled by installing the PyQt5"

@@ -4,38 +4,10 @@
 #
 # License: BSD-3-Clause
 
-from distutils.version import LooseVersion
-import sys
 import warnings
 
 import numpy as np
 from mne.surface import _normalize_vectors
-from mne.utils import check_version, warn
-
-
-def _check_mayavi_version(min_version='4.3.0'):
-    """Check mayavi version."""
-    if not check_version('mayavi', min_version):
-        raise RuntimeError("Need mayavi >= %s" % min_version)
-
-
-def _check_pyqt5_version():
-    bad = True
-    try:
-        from PyQt5.Qt import PYQT_VERSION_STR as version
-    except Exception:
-        version = 'unknown'
-    else:
-        if LooseVersion(version) >= LooseVersion('5.10'):
-            bad = False
-    bad &= sys.platform == 'darwin'
-    if bad:
-        warn('macOS users should use PyQt5 >= 5.10 for GUIs, got %s. '
-             'Please upgrade e.g. with:\n\n'
-             '    pip install "PyQt5>=5.10,<5.14"\n'
-             % (version,))
-
-    return version
 
 
 def _import_mlab():
