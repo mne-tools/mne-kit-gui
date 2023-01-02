@@ -7,11 +7,10 @@
 import os
 
 from mne.utils import verbose, get_config
-from ._utils import _check_mayavi_version
 from ._backend import _testing_mode
 
 
-__version__ = '1.1.dev0'
+__version__ = '1.1.0'
 
 
 def _initialize_gui(frame, view=None):
@@ -46,7 +45,6 @@ def fiducials(subject=None, fid_file=None, subjects_dir=None):
     All parameters are optional, since they can be set through the GUI.
     The functionality in this GUI is also part of :func:`coregistration`.
     """
-    _check_mayavi_version()
     from ._backend import _check_backend
     _check_backend()
     from ._fiducials_gui import FiducialsFrame
@@ -66,7 +64,6 @@ def kit2fiff():
     frame : instance of Kit2FiffFrame
         The GUI frame.
     """
-    _check_mayavi_version()
     from ._backend import _check_backend
     _check_backend()
     from ._kit2fiff_gui import Kit2FiffFrame
