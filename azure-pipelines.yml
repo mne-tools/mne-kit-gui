@@ -44,7 +44,7 @@ stages:
   jobs:
   - job: Style
     pool:
-      vmImage: 'ubuntu-22.04'
+      vmImage: 'ubuntu-20.04'
     steps:
     - bash: echo $(COMMIT_MSG)
     - task: UsePythonVersion@0
@@ -89,11 +89,11 @@ stages:
           python.version: '3.10'
           OS: macos
         Linux:
-          imageName: 'ubuntu-22.04'
+          imageName: 'ubuntu-20.04'
           python.version: '3.7'
           OS: linux
         Linux-dev:
-          imageName: 'ubuntu-22.04'
+          imageName: 'ubuntu-20.04'
           python.version: '3.10'
           OS: linux
           MNE: dev
@@ -130,7 +130,8 @@ stages:
         sudo chown -R $USER $CONDA
       displayName: "macOS: set conda paths"
       condition: eq(variables['OS'], 'macos')
-    - bash: CONDA_PREFIX=$CONDA conda install -n base -y mamba
+    # TODO: mamba can't be installed on Linux for some reason...
+    - bash: CONDA_PREFIX=$CONDA conda install -n base -c conda-forge -y mamba
       displayName: Setup mamba
       condition: not(eq(variables['OS'], 'linux'))
     - bash: $ENV_CMD env create -f environment.yml
