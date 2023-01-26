@@ -127,7 +127,7 @@ stages:
         sudo chown -R $USER $CONDA
       displayName: "macOS: set conda paths"
       condition: eq(variables['OS'], 'macos')
-    - bash: CONDA_PREFIX=$CONDA conda install -n base -c conda-forge -y mamba
+    - bash: CONDA_PREFIX=$CONDA conda install -n base -y mamba
       displayName: Setup mamba
     - script: mamba env create -f environment.yml
       displayName: Setup MNE-KIT-GUI environment
