@@ -130,7 +130,7 @@ stages:
     - bash: |
         set -eo pipefail
         echo "Conda:"
-        CONDA_PREFIX=$CONDA conda update -n base -c conda-forge conda
+        CONDA_PREFIX=$CONDA conda update -n base -c conda-forge -y conda
         echo "Mamba:"
         CONDA_PREFIX=$CONDA conda install -c conda-forge -y mamba
       displayName: Setup mamba
