@@ -147,7 +147,7 @@ stages:
       displayName: 'Print config'
     - script: python -c "import mne; mne.datasets.testing.data_path(verbose=True)"
       displayName: 'Get test data'
-    - script: pytest --tb=short --cov=mne_kit_gui --cov-report=xml --cov-report=html -vv mne_kit_gui
+    - script: pytest --tb=short --cov=mne_kit_gui --cov-report=xml --cov-report=html -vvv mne_kit_gui
       displayName: 'Run tests'
     - bash: bash <(curl -s https://codecov.io/bash)
       displayName: 'Codecov'
