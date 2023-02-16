@@ -35,6 +35,8 @@ def pytest_configure(config):
     ignore:.*is a deprecated alias for the builtin.*:DeprecationWarning
     ignore:.*deprecated method GetIsPicking.*:DeprecationWarning
     ignore:module 'sre_.*' is deprecated:DeprecationWarning
+    ignore:Implementing implicit namespace packages.*:DeprecationWarning
+    ignore:Deprecated call to `pkg_resources.*:DeprecationWarning
     always::ResourceWarning
     """  # noqa: E501
     for warning_line in warning_lines.split('\n'):
