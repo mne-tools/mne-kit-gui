@@ -140,7 +140,7 @@ stages:
       displayName: Remove stable version of MNE-KIT-GUI
     - script: pip install --progress-bar off -e .[test] codecov pooch
       displayName: Install testing requirements
-    - script: pip install --upgrade https://github.com/mne-tools/mne-python/zipball/main
+    - script: pip install --upgrade git+https://github.com/mne-tools/mne-python
       displayName: Install MNE-Python dev version
       condition: eq(variables['MNE'], 'dev')
     - script: mne sys_info
