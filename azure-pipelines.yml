@@ -140,7 +140,7 @@ stages:
       displayName: Remove stable version of MNE-KIT-GUI
     - script: pip install --progress-bar off -e .[test] codecov qtpy
       displayName: Install testing requirements
-    - script: pip install --upgrade git+https://github.com/mne-tools/mne-python@bf2502166eb15626c1205accc2d2d467535b8d93
+    - script: pip install --upgrade git+https://github.com/mne-tools/mne-python.git@bf2502166eb15626c1205accc2d2d467535b8d93
       displayName: Install MNE-Python dev version
       condition: eq(variables['MNE'], 'dev')
     - script: mne sys_info
