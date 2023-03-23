@@ -145,6 +145,8 @@ stages:
       condition: eq(variables['MNE'], 'dev')
     - script: mne sys_info
       displayName: 'Print config'
+    - script: Test mayavi
+      script: python -c "from mayavi import mlab; mlab.test_plot3d()"
     - script: python -c "import mne; mne.datasets.testing.data_path(verbose=True)"
       displayName: 'Get test data'
     - script: pytest --tb=short --cov=mne_kit_gui --cov-report=xml --cov-report=html -vvv mne_kit_gui
