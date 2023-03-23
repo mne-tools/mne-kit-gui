@@ -140,7 +140,7 @@ stages:
       displayName: Remove stable version of MNE-KIT-GUI
     - script: pip install --progress-bar off -e .[test] codecov qtpy nibabel
       displayName: Install testing requirements
-    - script: pip install --upgrade git+https://github.com/mne-tools/mne-python.git@417a9c4e17e28f613e45e6ce45c24cafb7152b25
+    - script: pip install --upgrade git+https://github.com/mne-tools/mne-python.git@main
       displayName: Install MNE-Python dev version
       condition: eq(variables['MNE'], 'dev')
     - script: mne sys_info
