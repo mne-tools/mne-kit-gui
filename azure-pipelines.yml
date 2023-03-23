@@ -138,16 +138,18 @@ stages:
       displayName: Setup MNE-KIT-GUI environment
     - script: conda remove -yq --force mne-kit-gui
       displayName: Remove stable version of MNE-KIT-GUI
-    - script: pip install --progress-bar off -e .[test] codecov pooch
+    - script: pip install --progress-bar off -e .[test] codecov qtpy nibabel
       displayName: Install testing requirements
-    - script: pip install --upgrade git+https://github.com/mne-tools/mne-python
+    - script: pip install --upgrade git+https://github.com/mne-tools/mne-python.git@main
       displayName: Install MNE-Python dev version
       condition: eq(variables['MNE'], 'dev')
     - script: mne sys_info
       displayName: 'Print config'
+    - script: python -c "from mayavi import mlab; mlab.test_plot3d()"
+      displayName: Test mayavi
     - script: python -c "import mne; mne.datasets.testing.data_path(verbose=True)"
       displayName: 'Get test data'
-    - script: pytest --tb=short --cov=mne_kit_gui --cov-report=xml --cov-report=html -vv mne_kit_gui
+    - script: pytest --tb=short --cov=mne_kit_gui --cov-report=xml --cov-report=html -vvv mne_kit_gui
       displayName: 'Run tests'
     - bash: bash <(curl -s https://codecov.io/bash)
       displayName: 'Codecov'
