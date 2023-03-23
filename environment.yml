@@ -3,4 +3,4 @@ channels:
 - conda-forge
 dependencies:
 - mne-kit-gui
-- pyqt >=5.15.8
+- qt-main >=5.15.8
