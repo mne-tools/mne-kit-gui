@@ -138,7 +138,7 @@ stages:
       displayName: Setup MNE-KIT-GUI environment
     - script: conda remove -yq --force mne-kit-gui
       displayName: Remove stable version of MNE-KIT-GUI
-    - script: pip install --progress-bar off -e .[test] codecov qtpy nibabel
+    - script: pip install --progress-bar off -e .[test] qtpy nibabel
       displayName: Install testing requirements
     - script: pip install --upgrade git+https://github.com/mne-tools/mne-python.git@main
       displayName: Install MNE-Python dev version
