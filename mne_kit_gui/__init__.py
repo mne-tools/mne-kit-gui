@@ -10,7 +10,7 @@ from mne.utils import verbose, get_config
 from ._backend import _testing_mode
 
 
-__version__ = '1.1.0'
+__version__ = '1.2.0'
 
 
 def _initialize_gui(frame, view=None):

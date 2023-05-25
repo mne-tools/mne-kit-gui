@@ -3,3 +3,6 @@ channels:
 - conda-forge
 dependencies:
 - mne-kit-gui
+# Until https://github.com/conda-forge/mayavi-feedstock/pull/74 is merged
+- traitsui <8
+- pyface <8
