@@ -1,0 +1,55 @@
+name: 'Tests'
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.number }}-${{ github.event.ref }}
+  cancel-in-progress: true
+on:  # yamllint disable-line rule:truthy
+  push:
+    branches:
+      - '*'
+  pull_request:
+    branches:
+      - '*'
+
+jobs:
+  pytest:
+    name: '${{ matrix.os }} / ${{ matrix.kind }} / ${{ matrix.python }}'
+    continue-on-error: true
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash -el {0}
+    env:
+      PYTHON_VERSION: '${{ matrix.python }}'
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python: '3.11'
+            mne: 'dev'
+          - os: ubuntu-latest
+            python: '3.9'
+          - os: macos-latest
+            python: '3.8'
+          - os: windows-latest
+            python: '3.10'
+    steps:
+      - uses: actions/checkout@v3
+      - uses: pyvista/setup-headless-display-action@main
+      - uses: mamba-org/setup-micromamba@v1
+        with:
+          micromamba-version: '1.3.1-0'
+          environment-file: environment.yml
+          init-shell: >-
+            bash
+          cache-environment: true
+          post-cleanup: 'all'
+      - run: mamba remove -yq --force mne-kit-gui
+      - run: pip install --progress-bar off -e .[test] qtpy nibabel
+      - run: pip install --upgrade git+https://github.com/mne-tools/mne-python.git@main
+        if: matrix.mne == "dev"
+      - run: mne sys_info -p
+      - run: python -c "from mayavi import mlab; mlab.test_plot3d()"
+      - run: python -c "import mne; mne.datasets.testing.data_path(verbose=True)"
+      - run: pytest --tb=short --cov=mne_kit_gui --cov-report=xml --cov-report=html -vvv mne_kit_gui
+      - uses: codecov/codecov-action@v3
+        if: success()
