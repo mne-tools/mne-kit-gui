@@ -130,8 +130,7 @@ stages:
         sudo chown -R $USER $CONDA
       displayName: "macOS: set conda paths"
       condition: eq(variables['OS'], 'macos')
-    # TODO: mamba can't be installed on Linux for some reason...
-    - bash: CONDA_PREFIX=$CONDA conda install -n base -c conda-forge -y mamba
+    - bash: CONDA_PREFIX=$CONDA conda install -n base -c conda-forge -y mamba libarchive
       displayName: Setup mamba
       condition: not(eq(variables['OS'], 'linux'))
     - bash: $ENV_CMD env create -f environment.yml
