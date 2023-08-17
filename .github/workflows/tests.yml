@@ -25,13 +25,16 @@ jobs:
         include:
           - os: ubuntu-latest
             python: '3.11'
-            mne: 'dev'
+            kind: 'dev'
           - os: ubuntu-latest
             python: '3.9'
+            kind: 'stable'
           - os: macos-latest
             python: '3.8'
+            kind: 'stable'
           - os: windows-latest
             python: '3.10'
+            kind: 'stable'
     steps:
       - uses: actions/checkout@v3
       - uses: pyvista/setup-headless-display-action@main
@@ -46,7 +49,7 @@ jobs:
       - run: mamba remove -yq --force mne-kit-gui
       - run: pip install --progress-bar off -e .[test] qtpy nibabel
       - run: pip install --upgrade git+https://github.com/mne-tools/mne-python.git@main
-        if: matrix.mne == "dev"
+        if: matrix.kind == 'dev'
       - run: mne sys_info -p
       - run: python -c "from mayavi import mlab; mlab.test_plot3d()"
       - run: python -c "import mne; mne.datasets.testing.data_path(verbose=True)"
