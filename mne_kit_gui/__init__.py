@@ -4,9 +4,6 @@
 #
 # License: BSD-3-Clause
 
-import os
-
-from mne.utils import verbose, get_config
 from ._backend import _testing_mode
 
 

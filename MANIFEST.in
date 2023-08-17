@@ -6,6 +6,7 @@ recursive-include mne_kit_gui/help *.json
 exclude Makefile
 exclude .coveragerc
 exclude *.yml
+exclude *.yaml
 exclude ignore_words.txt
 recursive-exclude mne_kit_gui *.pyc
 recursive-exclude mne_kit_gui/tests/data *
