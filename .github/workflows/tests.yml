@@ -9,6 +9,8 @@ on:  # yamllint disable-line rule:truthy
   pull_request:
     branches:
       - '*'
+  schedule:
+    - cron: "0 4 * * *"
 
 jobs:
   pytest:
@@ -46,7 +48,7 @@ jobs:
             bash
           cache-environment: true
           post-cleanup: 'all'
-      - run: mamba remove -yq --force mne-kit-gui
+      - run: conda remove -yq --force mne-kit-gui
       - run: pip install --progress-bar off -e .[test] qtpy nibabel
       - run: pip install --upgrade git+https://github.com/mne-tools/mne-python.git@main
         if: matrix.kind == 'dev'
