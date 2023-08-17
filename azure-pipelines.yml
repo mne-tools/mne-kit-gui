@@ -136,7 +136,7 @@ stages:
     - script: pip install --upgrade git+https://github.com/mne-tools/mne-python.git@main
       displayName: Install MNE-Python dev version
       condition: eq(variables['MNE'], 'dev')
-    - script: mne sys_info
+    - script: mne sys_info -p
       displayName: 'Print config'
     - script: python -c "from mayavi import mlab; mlab.test_plot3d()"
       displayName: Test mayavi
