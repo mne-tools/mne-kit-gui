@@ -107,7 +107,6 @@ stages:
         echo "##vso[task.setvariable variable=CONDA_DEFAULT_ENV]mne-kit-gui"
         git clone --depth 1 https://github.com/pyvista/gl-ci-helpers.git
         powershell gl-ci-helpers/appveyor/install_opengl.ps1
-        echo "##vso[task.setvariable variable=ENV_CMD]mamba"
       displayName: "Windows: install OpenGL and set conda paths"
       condition: eq(variables['OS'], 'windows')
     - bash: |
@@ -118,7 +117,6 @@ stages:
         echo "##vso[task.prependpath]$CONDA/envs/mne-kit-gui/bin:$CONDA/bin"
         echo "##vso[task.setvariable variable=CONDA_PREFIX]$CONDA/envs/mne-kit-gui"
         echo "##vso[task.setvariable variable=CONDA_DEFAULT_ENV]mne-kit-gui"
-        echo "##vso[task.setvariable variable=ENV_CMD]mamba"
       displayName: "Linux: start Xvfb and set conda paths"
       condition: eq(variables['OS'], 'linux')
     - bash: |
@@ -126,11 +124,10 @@ stages:
         echo "##vso[task.prependpath]$CONDA/envs/mne-kit-gui/bin:$CONDA/bin"
         echo "##vso[task.setvariable variable=CONDA_PREFIX]$CONDA/envs/mne-kit-gui"
         echo "##vso[task.setvariable variable=CONDA_DEFAULT_ENV]mne-kit-gui"
-        echo "##vso[task.setvariable variable=ENV_CMD]mamba"
         sudo chown -R $USER $CONDA
       displayName: "macOS: set conda paths"
       condition: eq(variables['OS'], 'macos')
-    - bash: CONDA_PREFIX=$CONDA conda install -n base -c conda-forge --strict-channel-priority -y mamba libarchive
+    - bash: conda install -n mne-kit-gui -c conda-forge --strict-channel-priority -y mamba libarchive
       displayName: Setup mamba
     - bash: mamba env create -f environment.yml
       displayName: Setup MNE-KIT-GUI environment
