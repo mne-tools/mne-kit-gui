@@ -127,9 +127,9 @@ stages:
         sudo chown -R $USER $CONDA
       displayName: "macOS: set conda paths"
       condition: eq(variables['OS'], 'macos')
-    - bash: conda install -n mne-kit-gui -c conda-forge --strict-channel-priority -y mamba libarchive
+    - bash: conda create -n mne-kit-gui -c conda-forge --strict-channel-priority -y mamba libarchive
       displayName: Setup mamba
-    - bash: mamba env create -f environment.yml
+    - bash: mamba env update -f environment.yml
       displayName: Setup MNE-KIT-GUI environment
     - script: conda remove -yq --force mne-kit-gui
       displayName: Remove stable version of MNE-KIT-GUI
