@@ -131,8 +131,6 @@ stages:
       displayName: Setup mamba
     - bash: mamba env update -f environment.yml
       displayName: Setup MNE-KIT-GUI environment
-    - script: mamba remove -yq --force mne-kit-gui
-      displayName: Remove stable version of MNE-KIT-GUI
     - script: pip install --progress-bar off -e .[test] qtpy nibabel
       displayName: Install testing requirements
     - script: pip install --upgrade git+https://github.com/mne-tools/mne-python.git@main
