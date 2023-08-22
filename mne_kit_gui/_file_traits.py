@@ -23,8 +23,7 @@ from mne.bem import read_bem_surfaces
 from mne.io.constants import FIFF
 from mne.io import read_info, read_fiducials, read_raw
 from mne.io._read_raw import supported
-from mne.io.meas_info import _empty_info
-from mne.io.open import fiff_open, dir_tree_find
+from mne import create_info
 from mne.surface import read_surface, complete_surface_info
 from mne.coreg import (_is_mri_subject, _mri_subject_has_bem,
                        create_default_subject)
@@ -311,17 +310,17 @@ class DigSource(HasPrivateTraits):
             return
         elif self.file.endswith(('.fif', '.fif.gz')):
             info = None
-            fid, tree, _ = fiff_open(self.file)
-            fid.close()
-            if len(dir_tree_find(tree, FIFF.FIFFB_MEAS_INFO)) > 0:
+            try:
                 info = read_info(self.file, verbose=False)
-            elif len(dir_tree_find(tree, FIFF.FIFFB_ISOTRAK)) > 0:
-                info = _empty_info(1)
-                info['dig'] = read_dig_fif(fname=self.file).dig
+            except Exception:
                 try:
-                    info._unlocked = False
+                    dig = read_dig_fif(self.file).dig
                 except Exception:
                     pass
+                else:
+                    info = create_info(1, 1000., 'mag')
+                    with info._unlock():
+                        info['dig'] = dig
         else:
             info = read_raw(self.file).info
 

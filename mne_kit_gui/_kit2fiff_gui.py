@@ -28,7 +28,10 @@ from tvtk.pyface.scene_editor import SceneEditor
 
 from mne.event import _find_events
 from mne.io.constants import FIFF
-from mne.io._digitization import _make_dig_points
+try:
+    from mne._fiff._digitization import _make_dig_points
+except ImportError:  # MNE < 1.6
+    from mne.io._digitization import _make_dig_points
 from mne.io.kit.coreg import _read_dig_kit
 from mne.io.kit.kit import (RawKIT, KIT, _make_stim_channel, _default_stim_chs,
                             UnsupportedKITFormat)

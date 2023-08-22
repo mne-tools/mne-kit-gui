@@ -20,7 +20,10 @@ from traitsui.menu import Action, CancelButton
 from mne.transforms import apply_trans, rotation, translation
 from mne.coreg import fit_matched_points
 from mne.io.kit import read_mrk
-from mne.io._digitization import _write_dig_points
+try:
+    from mne._fiff._digitization import _write_dig_points
+except ImportError:
+    from mne.io._digitization import _write_dig_points
 
 from ._viewer import PointObject
 from ._backend import _get_pyface_backend

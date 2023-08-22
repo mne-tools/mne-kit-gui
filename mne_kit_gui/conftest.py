@@ -39,6 +39,7 @@ def pytest_configure(config):
     ignore:Deprecated call to `pkg_resources.*:DeprecationWarning
     ignore:pkg_resources is deprecated as an API.*:DeprecationWarning
     ignore:The traitsui.qt4.*:FutureWarning
+    ignore:numpy\.ndarray size changed.*:RuntimeWarning
     always::ResourceWarning
     """  # noqa: E501
     for warning_line in warning_lines.split('\n'):
