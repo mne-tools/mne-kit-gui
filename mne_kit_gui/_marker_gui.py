@@ -4,6 +4,7 @@
 #
 # License: BSD-3-Clause
 
+import datetime
 import os
 import sys
 
@@ -20,10 +21,6 @@ from traitsui.menu import Action, CancelButton
 from mne.transforms import apply_trans, rotation, translation
 from mne.coreg import fit_matched_points
 from mne.io.kit import read_mrk
-try:
-    from mne._fiff._digitization import _write_dig_points
-except ImportError:
-    from mne.io._digitization import _write_dig_points
 
 from ._viewer import PointObject
 from ._backend import _get_pyface_backend
@@ -457,3 +454,37 @@ class CombineMarkersPanel(HasTraits):  # noqa: D401
         if self.mrk3_obj is not None:
             self.mrk3_obj.points = apply_trans(self.trans,
                                                self.model.mrk3.points)
+
+
+def _write_dig_points(fname, dig_points):
+    """Write points to text file.
+
+    Parameters
+    ----------
+    fname : path-like
+        Path to the file to write. The kind of file to write is determined
+        based on the extension: '.txt' for tab separated text file.
+    dig_points : numpy.ndarray, shape (n_points, 3)
+        Points.
+    """
+    from mne import __version__
+
+    _, ext = os.path.splitext(fname)
+    dig_points = np.asarray(dig_points)
+    if (dig_points.ndim != 2) or (dig_points.shape[1] != 3):
+        err = "Points must be of shape (n_points, 3), " "not %s" % (dig_points.shape,)
+        raise ValueError(err)
+
+    if ext == ".txt":
+        with open(fname, "wb") as fid:
+            version = __version__
+            now = datetime.datetime.now().strftime("%I:%M%p on %B %d, %Y")
+            fid.write(
+                b"%% Ascii 3D points file created by mne-python version"
+                b" %s at %s\n" % (version.encode(), now.encode())
+            )
+            fid.write(b"%% %d 3D points, x y z per line\n" % len(dig_points))
+            np.savetxt(fid, dig_points, delimiter="\t", newline="\n")
+    else:
+        msg = "Unrecognized extension: %r. Need '.txt'." % ext
+        raise ValueError(msg)

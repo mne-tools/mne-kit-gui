@@ -5,7 +5,6 @@
 # License: BSD-3-Clause
 
 from collections import Counter
-from contextlib import nullcontext
 import os
 import queue
 import sys
@@ -26,12 +25,9 @@ from traitsui.api import (View, Item, HGroup, VGroup, spring, TextEditor,
 from traitsui.menu import NoButtons
 from tvtk.pyface.scene_editor import SceneEditor
 
+from mne.channels import make_dig_montage
 from mne.event import _find_events
 from mne.io.constants import FIFF
-try:
-    from mne._fiff._digitization import _make_dig_points
-except ImportError:  # MNE < 1.6
-    from mne.io._digitization import _make_dig_points
 from mne.io.kit.coreg import _read_dig_kit
 from mne.io.kit.kit import (RawKIT, KIT, _make_stim_channel, _default_stim_chs,
                             UnsupportedKITFormat)
@@ -424,14 +420,15 @@ class Kit2FiffModel(HasPrivateTraits):
                      allow_unknown_format=self.allow_unknown_format)
 
         if np.any(self.fid):
-            try:
-                ctx = raw.info._unlock()
-            except AttributeError:
-                ctx = nullcontext()
-            with ctx:
-                raw.info['dig'] = _make_dig_points(self.fid[0], self.fid[1],
-                                                   self.fid[2], self.elp,
-                                                   self.hsp)
+            mon = make_dig_montage(
+                nasion=self.fid[0],
+                lpa=self.fid[1],
+                rpa=self.fid[2],
+                hpi=self.elp,
+                hsp=self.hsp,
+            )
+            with raw.info._unlock():
+                raw.info['dig'] = mon.dig
                 raw.info['dev_head_t'] = Transform('meg', 'head',
                                                    self.dev_head_trans)
         return raw
