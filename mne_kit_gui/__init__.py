@@ -7,7 +7,7 @@
 from ._backend import _testing_mode
 
 
-__version__ = '1.3.0'
+__version__ = '1.4.0'
 
 
 def _initialize_gui(frame, view=None):
