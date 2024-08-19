@@ -22,7 +22,6 @@ from tvtk.api import tvtk
 from mne.defaults import DEFAULTS
 from mne.surface import _CheckInside, _DistanceQuery
 from mne.transforms import apply_trans, rotation
-from mne.utils import SilenceStdout
 
 from ._utils import _create_mesh_surf, _oct_glyph, _toggle_mlab_render
 
@@ -171,9 +170,12 @@ class HeadViewController(HasTraits):
         kwargs = dict(zip(('azimuth', 'elevation', 'roll'),
                           kwargs[system][view]))
         kwargs['focalpoint'] = (0., 0., 0.)
-        with SilenceStdout():
-            self.scene.mlab.view(distance=None, reset_roll=True,
-                                 figure=self.scene.mayavi_scene, **kwargs)
+        self.scene.mlab.view(
+            distance=None,
+            reset_roll=True,
+            figure=self.scene.mayavi_scene,
+            **kwargs,
+        )
 
 
 class Object(HasPrivateTraits):
