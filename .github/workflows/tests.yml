@@ -38,9 +38,9 @@ jobs:
             python: '3.10'
             kind: 'stable'
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: pyvista/setup-headless-display-action@main
-      - uses: mamba-org/setup-micromamba@v1
+      - uses: mamba-org/setup-micromamba@v2
         with:
           micromamba-version: '1.3.1-0'
           environment-file: environment.yml
@@ -55,5 +55,5 @@ jobs:
       - run: python -c "from mayavi import mlab; mlab.test_plot3d()"
       - run: python -c "import mne; mne.datasets.testing.data_path(verbose=True)"
       - run: pytest --tb=short --cov=mne_kit_gui --cov-report=xml --cov-report=html -vvv mne_kit_gui
-      - uses: codecov/codecov-action@v3
+      - uses: codecov/codecov-action@v4
         if: success()
