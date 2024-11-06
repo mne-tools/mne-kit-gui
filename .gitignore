@@ -129,3 +129,4 @@ dmypy.json
 .pyre/
 
 junit-results.xml
+.DS_Store
