@@ -55,7 +55,7 @@ jobs:
       - run: python -c "from mayavi import mlab; mlab.test_plot3d()"
       - run: python -c "import mne; mne.datasets.testing.data_path(verbose=True)"
       - run: pytest --tb=short --cov=mne_kit_gui --cov-report=xml --cov-report=html -vvv mne_kit_gui
-      - uses: codecov/codecov-action@v4
+      - uses: codecov/codecov-action@v5
         with:
           token: ebcd818a-7a71-470d-b667-7cd9c3003c7d
         if: success() || failure()
