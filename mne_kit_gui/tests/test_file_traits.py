@@ -51,6 +51,7 @@ def test_fiducials_source():
     assert fid.points is None
 
 
+@pytest.mark.filterwarnings('ignore:does not conform to MNE naming:RuntimeWarning')
 @testing.requires_testing_data
 def test_digitization_source(tmpdir):
     """Test DigSource."""
