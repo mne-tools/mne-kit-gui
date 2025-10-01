@@ -9,8 +9,6 @@ on:  # yamllint disable-line rule:truthy
   pull_request:
     branches:
       - '*'
-  schedule:
-    - cron: "0 4 * * *"
 
 jobs:
   pytest:
