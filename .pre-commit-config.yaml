@@ -1,6 +1,6 @@
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.0
+    rev: v0.14.1
     hooks:
       - id: ruff
   - repo: https://github.com/adrienverge/yamllint
@@ -9,6 +9,6 @@ repos:
       - id: yamllint
         args: [--strict, -c, .yamllint.yml]
   - repo: https://github.com/mgedmin/check-manifest
-    rev: "0.50"
+    rev: "0.51"
     hooks:
       - id: check-manifest
