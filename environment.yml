@@ -5,3 +5,4 @@ dependencies:
   - mne-kit-gui
   - traitsui
   - pyface
+  - numpy <2.4
