@@ -40,8 +40,8 @@ jobs:
       - uses: pyvista/setup-headless-display-action@main
       - uses: mamba-org/setup-micromamba@v3
         with:
+          micromamba-version: '2.6.0-0'  # workaround for https://github.com/mamba-org/micromamba-releases/issues/97
           environment-file: environment.yml
-      #
       - run: python -m pip install --progress-bar off -e .[test] qtpy nibabel defusedxml
       - run: python -m pip install --upgrade git+https://github.com/mne-tools/mne-python.git@main
         if: matrix.kind == 'dev'
