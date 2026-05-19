@@ -5,7 +5,7 @@ concurrency:
 on:  # yamllint disable-line rule:truthy
   push:
     branches:
-      - '*'
+      - main
   pull_request:
     branches:
       - '*'
@@ -40,10 +40,10 @@ jobs:
       - uses: pyvista/setup-headless-display-action@main
       - uses: mamba-org/setup-micromamba@v3
         with:
+          micromamba-version: '2.6.0-0'  # workaround for https://github.com/mamba-org/micromamba-releases/issues/97
           environment-file: environment.yml
-      #
-      - run: python -m pip install --progress-bar off -e .[test] qtpy nibabel defusedxml
-      - run: python -m pip install --upgrade git+https://github.com/mne-tools/mne-python.git@main
+      - run: python -m pip install --progress-bar off -e .[test] qtpy nibabel defusedxml --only-binary=":all:"
+      - run: python -m pip install --upgrade "mne @ https://github.com/mne-tools/mne-python/archive/refs/heads/main.zip"
         if: matrix.kind == 'dev'
       - run: mne sys_info -p
       - run: python -c "from mayavi import mlab; mlab.test_plot3d()"

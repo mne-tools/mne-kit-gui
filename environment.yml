@@ -6,3 +6,5 @@ dependencies:
   - traitsui
   - pyface
   - numpy <2.4
+  - pip
+  - conda
