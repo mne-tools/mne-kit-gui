@@ -40,12 +40,12 @@ jobs:
       - uses: actions/checkout@v6
       - uses: pyvista/setup-headless-display-action@main
       - uses: mamba-org/setup-micromamba@v3
-        timeout-minutes: 5
+        timeout-minutes: 8
         with:
           environment-file: environment.yml
           # Pin some packages to facilitate speed of solving
           create-args: >-
-            python=${{ matrix.python }} "mayavi=4.8.3=pyside6_*" traitsui=8.0.0 pyface=8.0.0 pyside6=6.9.1 qt6-main=6.9.1 vtk-base=9.4.2 vtk=9.4.2 noqt5=1.0.0
+            python=${{ matrix.python }} mayavi=4.8.3 traitsui=8.0.0 pyface=8.0.0 pyside6=6.9.1 qt6-main=6.9.1 vtk-base=9.4.2 vtk=9.4.2 noqt5=1.0.0
       - run: python -m pip install --progress-bar off -e .[test] qtpy nibabel defusedxml --only-binary=":all:"
       - run: python -m pip install --upgrade "mne @ https://github.com/mne-tools/mne-python/archive/refs/heads/main.zip"
         if: matrix.kind == 'dev'
