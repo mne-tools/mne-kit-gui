@@ -34,6 +34,7 @@ def pytest_configure(config):
     ignore:pkg_resources is deprecated as an API.*:DeprecationWarning
     ignore:numpy\.ndarray size changed.*:RuntimeWarning
     ignore:events_as_annotations defaults to False.*:FutureWarning
+    ignore:Setting the shape on a NumPy array[\s\S]*:DeprecationWarning
     always::ResourceWarning
     """  # noqa: E501
     for warning_line in warning_lines.split("\n"):
