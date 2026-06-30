@@ -2,6 +2,7 @@
 #
 # License: BSD-3-Clause
 
+import gc
 from pathlib import Path
 
 import numpy as np
@@ -121,3 +122,7 @@ def test_fiducials_frame(qtbot):
 
     frame.model.can_save = False  # avoid the unsaved-changes dialog on close
     frame.close()
+    # Make macOS happy
+    qtbot.wait(200)  # wait for the close to finish
+    del frame
+    gc.collect()
