@@ -6,6 +6,7 @@
 import gc
 import os
 import shutil
+from pathlib import Path
 
 import pytest
 
@@ -52,9 +53,9 @@ def subjects_dir_tmp(tmp_path):
         shutil.copytree(subjects_dir / key, tmp_path / key)
     for root, dirs, files in os.walk(tmp_path):
         for dir_ in dirs:
-            (root / dir_).chmod(0o755)
+            (Path(root) / dir_).chmod(0o755)
         for file_ in files:
-            (root / file_).chmod(0o644)
+            (Path(root) / file_).chmod(0o644)
     return tmp_path
 
 

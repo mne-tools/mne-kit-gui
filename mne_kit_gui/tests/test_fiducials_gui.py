@@ -88,8 +88,6 @@ def test_fiducials_frame(qtbot, check_gc):
     # once we close it below, so don't also register it with qtbot for
     # auto-close at teardown -- that would double-close it.
     frame = FiducialsFrame(subject="sample", subjects_dir=str(subjects_dir))
-    with qtbot.wait_exposed(frame):
-        pass
 
     # the head surface and fiducial point glyphs should be plotted
     assert frame.mri_obj.surf is not None
