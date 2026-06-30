@@ -7,7 +7,7 @@ from numpy.testing import assert_allclose
 
 from mne.transforms import rotation
 
-from mne_kit_gui._utils import _glyph_geom
+from mne_kit_gui._3d import _glyph_geom
 from mne_kit_gui._viewer import (
     HeadViewController,
     Object,

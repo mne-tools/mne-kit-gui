@@ -483,23 +483,47 @@ class FiducialsFrame(QMainWindow):
         sg_layout = QVBoxLayout(sg)
         from qtpy.QtWidgets import QComboBox, QLineEdit
 
-        self._subjects_dir_edit = QLineEdit()
+        source = self.model.subject_source
+
+        # subjects_dir row: a path field (kept in sync with the model) + browse
+        dir_row = QHBoxLayout()
+        self._subjects_dir_edit = QLineEdit(source.subjects_dir)
         self._subjects_dir_edit.setPlaceholderText("SUBJECTS_DIR")
         self._subjects_dir_edit.editingFinished.connect(
             lambda: setattr(self.spanel, "subjects_dir", self._subjects_dir_edit.text())
         )
+        source.observe(
+            lambda ch: self._subjects_dir_edit.setText(ch["new"]),
+            names=["subjects_dir"],
+        )
+        dir_browse = QPushButton("Browse")
+        dir_browse.setObjectName("subjects_dir_browse")
+        dir_browse.clicked.connect(self._browse_subjects_dir)
+        dir_row.addWidget(self._subjects_dir_edit)
+        dir_row.addWidget(dir_browse)
+        sg_layout.addLayout(dir_row)
+
         self._subject_combo = QComboBox()
         self._subject_combo.currentTextChanged.connect(
             lambda s: setattr(self.spanel, "subject", s)
         )
-        sg_layout.addWidget(self._subjects_dir_edit)
         sg_layout.addWidget(self._subject_combo)
+
+        # fsaverage creation, enabled only when fsaverage is not already present
+        self._fsaverage_btn = QPushButton("fsaverage⇨SUBJECTS_DIR")
+        self._fsaverage_btn.setObjectName("create_fsaverage")
+        self._fsaverage_btn.clicked.connect(self._create_fsaverage)
+        self._fsaverage_btn.setEnabled(source.can_create_fsaverage)
+        source.observe(
+            lambda ch: self._fsaverage_btn.setEnabled(ch["new"]),
+            names=["can_create_fsaverage"],
+        )
+        sg_layout.addWidget(self._fsaverage_btn)
+
         ctrl_layout.addWidget(sg)
         # Keep combo populated when subjects list changes
-        self.model.subject_source.observe(
-            self._update_subject_combo, names=["subjects"]
-        )
-        self.model.subject_source.observe(
+        source.observe(self._update_subject_combo, names=["subjects"])
+        source.observe(
             lambda ch: self._subject_combo.setCurrentText(ch["new"]), names=["subject"]
         )
 

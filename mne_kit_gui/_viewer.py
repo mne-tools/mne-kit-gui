@@ -13,7 +13,7 @@ from mne.defaults import DEFAULTS
 from mne.surface import _DistanceQuery
 from mne.transforms import apply_trans, rotation
 
-from ._utils import _create_mesh_surf, _glyph_geom
+from ._3d import _create_mesh_surf, _glyph_geom
 
 
 def _mm_fmt(x):
