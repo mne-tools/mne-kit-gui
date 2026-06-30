@@ -4,6 +4,7 @@
 # License: BSD-3-Clause
 
 import gc
+import os
 import shutil
 
 import pytest
@@ -49,7 +50,7 @@ def subjects_dir_tmp(tmp_path):
     """Copy MNE-testing-data subjects_dir to a temp dir for manipulation."""
     for key in ("sample", "fsaverage"):
         shutil.copytree(subjects_dir / key, tmp_path / key)
-    for root, dirs, files in tmp_path.walk():
+    for root, dirs, files in os.walk(tmp_path):
         for dir_ in dirs:
             (root / dir_).chmod(0o755)
         for file_ in files:
