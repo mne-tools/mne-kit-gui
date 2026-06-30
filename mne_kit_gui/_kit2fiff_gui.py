@@ -31,8 +31,7 @@ from mne.utils import get_config, set_config, logger, warn
 
 from ._marker_gui import CombineMarkersPanel, CombineMarkersModel
 from ._help import read_tooltips
-from ._viewer import (HeadViewController, PointObject, activate_mayavi_scene,
-                      embed_mayavi_scene)
+from ._viewer import HeadViewController, PointObject, embed_pyvista_scene
 
 
 hsp_wildcard = "Head Shape Points (*.hsp *.txt)"
@@ -477,7 +476,7 @@ class Kit2FiffPanel(HasTraits):
     model = Any()   # Kit2FiffModel
 
     # Visualization
-    scene = Any()   # MlabSceneModel
+    scene = Any()   # pyvistaqt.QtInteractor
     fid_obj = Any()   # PointObject
     elp_obj = Any()   # PointObject
     hsp_obj = Any()   # PointObject
@@ -617,11 +616,10 @@ class Kit2FiffFrame(QMainWindow):
         self.model = _load_model_config()
         self.model.parent = self
 
-        # Mayavi scene embedded directly via the toolkit scene class
-        # (no traitsui needed; see _viewer.embed_mayavi_scene).
+        # pyvista scene embedded directly as a QWidget.
         self._scene_widget = QWidget(self)
         QVBoxLayout(self._scene_widget)
-        self.scene = embed_mayavi_scene(self._scene_widget)
+        self.scene = embed_pyvista_scene(self._scene_widget)
 
         self.headview = HeadViewController(
             scene=self.scene, scale=160, system='RAS')
@@ -634,10 +632,6 @@ class Kit2FiffFrame(QMainWindow):
             parent=self)
 
         self._build_ui()
-
-        # Activate the scene now that all 'activated' listeners (headview,
-        # kit2fiff_panel's and marker_panel's PointObjects) are registered.
-        activate_mayavi_scene(self.scene)
 
         # Update feedback labels when queue state changes
         self.kit2fiff_panel.observe(

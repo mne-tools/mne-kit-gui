@@ -4,100 +4,98 @@
 #
 # License: BSD-3-Clause
 
-import warnings
-
 import numpy as np
+
 from mne.surface import _normalize_vectors
 
 
-def _import_mlab():
-    """Quietly import mlab."""
-    with warnings.catch_warnings(record=True):
-        from mayavi import mlab
-    return mlab
+def _create_mesh_surf(surf, compute_normals=True):
+    """Create a pyvista PolyData mesh from an MNE surf dict.
 
+    Parameters
+    ----------
+    surf : dict
+        Dict with keys 'rr' (n, 3) and 'tris' (n, 3), and optionally 'nn'.
+    compute_normals : bool
+        If True, compute (smooth) normals with vtk. If False, use the
+        normals in ``surf['nn']`` if present.
 
-def _toggle_mlab_render(fig, render):
-    mlab = _import_mlab()
-    if mlab.options.backend != 'test':
-        fig.scene.disable_render = not render
-
-
-def _create_mesh_surf(surf, fig=None, scalars=None, vtk_normals=True):
-    """Create Mayavi mesh from MNE surf."""
-    mlab = _import_mlab()
-    x, y, z = surf['rr'].T
-    with warnings.catch_warnings(record=True):  # traits
-        mesh = mlab.pipeline.triangular_mesh_source(
-            x, y, z, surf['tris'], scalars=scalars, figure=fig)
-    if vtk_normals:
-        mesh = mlab.pipeline.poly_data_normals(mesh)
-        mesh.filter.compute_cell_normals = False
-        mesh.filter.consistency = False
-        mesh.filter.non_manifold_traversal = False
-        mesh.filter.splitting = False
-    else:
-        # make absolutely sure these are normalized for Mayavi
-        nn = surf['nn'].copy()
+    Returns
+    -------
+    mesh : pyvista.PolyData
+        The mesh.
+    """
+    import pyvista as pv
+    vertices = np.asarray(surf['rr'], float)
+    tris = np.asarray(surf['tris'], int)
+    faces = np.c_[np.full(len(tris), 3), tris]
+    mesh = pv.PolyData(vertices, faces)
+    if compute_normals:
+        mesh.compute_normals(
+            cell_normals=False, point_normals=True, split_vertices=False,
+            consistent_normals=False, non_manifold_traversal=False,
+            inplace=True)
+    elif surf.get('nn') is not None:
+        nn = np.array(surf['nn'], float)
         _normalize_vectors(nn)
-        mesh.data.point_data.normals = nn
-        mesh.data.cell_data.normals = None
+        mesh.point_data['Normals'] = nn
+        mesh.GetPointData().SetActiveNormals('Normals')
     return mesh
 
 
-def _oct_glyph(glyph_source, transform):
-    from tvtk.api import tvtk
-    from tvtk.common import configure_input
-    from traits.api import Array
-    gs = tvtk.PlatonicSolidSource()
+def _glyph_geom(mode, resolution=8, solid_transform=None, height=None):
+    """Build unit glyph geometry (a vtkPolyData) for a given mode.
 
-    # Workaround for:
-    #  File "mayavi/components/glyph_source.py", line 231, in _glyph_position_changed  # noqa: E501
-    #    g.center = 0.0, 0.0, 0.0
-    # traits.trait_errors.TraitError: Cannot set the undefined 'center' attribute of a 'TransformPolyDataFilter' object.  # noqa: E501
-    class SafeTransformPolyDataFilter(tvtk.TransformPolyDataFilter):
-        center = Array(shape=(3,), value=np.zeros(3))
+    Parameters
+    ----------
+    mode : 'sphere' | 'cylinder' | 'oct'
+        The kind of glyph to build.
+    resolution : int
+        Resolution for 'sphere'/'cylinder' sources.
+    solid_transform : ndarray, shape (4, 4) | None
+        Optional transform applied to the (typically 'oct') source, e.g. to
+        rotate it into a more pleasing orientation.
+    height : float | None
+        For 'cylinder', the cylinder height; the cylinder is also offset
+        so that one face sits at the origin (so e.g. an EEG-sensor-like
+        disc glyph appears to sit "on" the point rather than centered
+        through it).
 
-    gs.solid_type = 'octahedron'
-    if transform is not None:
-        # glyph:             mayavi.modules.vectors.Vectors
-        # glyph.glyph:       vtkGlyph3D
-        # glyph.glyph.glyph: mayavi.components.glyph.Glyph
-        assert transform.shape == (4, 4)
-        tr = tvtk.Transform()
-        tr.set_matrix(transform.ravel())
-        trp = SafeTransformPolyDataFilter()
-        configure_input(trp, gs)
-        trp.transform = tr
-        trp.update()
-        gs = trp
-    glyph_source.glyph_source = gs
-
-
-def requires_mayavi(function):
-    """Skip a test if package is not available (decorator)."""
-    import pytest
-    reason = 'Test %s skipped, requires mayavi.' % (function.__name__,)
-    try:
-        with warnings.catch_warnings(record=True):  # traits
-            from mayavi import mlab  # noqa
-    except Exception as exc:
-        reason += ' Got exception (%s)' % (exc,)
-        skip = True
+    Returns
+    -------
+    geom : vtkPolyData
+        The unit glyph geometry, suitable for use as the ``geom`` argument
+        to :meth:`pyvista.PolyDataFilters.glyph`.
+    """
+    from vtkmodules.vtkFiltersSources import (
+        vtkSphereSource, vtkCylinderSource, vtkPlatonicSolidSource)
+    if mode == 'sphere':
+        src = vtkSphereSource()
+        src.SetThetaResolution(resolution)
+        src.SetPhiResolution(resolution)
+    elif mode == 'cylinder':
+        src = vtkCylinderSource()
+        src.SetResolution(resolution)
+        if height is not None:
+            src.SetHeight(height)
+            src.SetCenter(0., -height / 2., 0.)
+    elif mode == 'oct':
+        src = vtkPlatonicSolidSource()
+        src.SetSolidTypeToOctahedron()
     else:
-        skip = False
-    return pytest.mark.skipif(skip, reason=reason)(function)
-
-
-class ETSContext(object):
-    """Add more meaningful message to errors generated by ETS Toolkit."""
-
-    def __enter__(self):  # noqa: D105
-        pass
-
-    def __exit__(self, type, value, traceback):  # noqa: D105
-        if isinstance(value, SystemExit) and value.code.\
-                startswith("This program needs access to the screen"):
-            value.code += ("\nThis can probably be solved by setting "
-                           "ETS_TOOLKIT=qt4. On bash, type\n\n    $ export "
-                           "ETS_TOOLKIT=qt4\n\nand run the command again.")
+        raise ValueError('mode must be sphere, cylinder, or oct, got %r'
+                         % (mode,))
+    src.Update()
+    geom = src.GetOutput()
+    if solid_transform is not None:
+        from vtkmodules.vtkCommonTransforms import vtkTransform
+        from vtkmodules.vtkFiltersGeneral import vtkTransformFilter
+        assert solid_transform.shape == (4, 4)
+        tr = vtkTransform()
+        tr.SetMatrix(solid_transform.astype(np.float64).ravel())
+        trp = vtkTransformFilter()
+        trp.SetInputData(geom)
+        trp.SetTransform(tr)
+        trp.Update()
+        geom = trp.GetOutput()
+    return geom

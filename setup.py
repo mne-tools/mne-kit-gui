@@ -29,14 +29,15 @@ VERSION = version
 INSTALL_REQUIRES = [
     'numpy',
     'scipy',
-    'mayavi',    # Phase 1: still needed for 3D rendering; removed in Phase 2
+    'pyvista>=0.43',
+    'pyvistaqt',
     'traitlets',
     'qtpy',
     'mne>=0.23',
 ]
 TEST_REQUIRES = [
     'flake8', 'pydocstyle', 'pytest', 'pytest-cov', 'pytest-qt',
-    'check-manifest', 'twine', 'wheel', 'pyvista', 'mffpy',
+    'check-manifest', 'twine', 'wheel', 'mffpy',
 ]
 CLASSIFIERS = ['Intended Audience :: Science/Research',
                'Intended Audience :: Developers',

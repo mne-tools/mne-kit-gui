@@ -351,7 +351,7 @@ class CombineMarkersPanel(HasTraits):  # noqa: D401
     distance = Unicode()
 
     # Visualization
-    scene = Any()   # MlabSceneModel
+    scene = Any()   # pyvistaqt.QtInteractor
     scale = Float(5e-3)
     mrk1_obj = Any()   # PointObject
     mrk2_obj = Any()   # PointObject

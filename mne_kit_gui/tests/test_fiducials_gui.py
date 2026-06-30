@@ -5,7 +5,10 @@
 import os
 import os.path as op
 
+import numpy as np
 from numpy.testing import assert_array_equal
+
+from mne.datasets import testing
 
 
 def test_mri_model(subjects_dir_tmp):
@@ -62,3 +65,63 @@ def test_mri_model(subjects_dir_tmp):
     assert model.can_reset
     model.reset_fiducials()
     assert_array_equal(model.nasion, [[0, 1, 0]])
+
+
+@testing.requires_testing_data
+def test_fiducials_frame(qtbot):
+    """Test FiducialsFrame GUI, including the 3D scene and picking."""
+    from mne_kit_gui._fiducials_gui import FiducialsFrame
+
+    data_path = str(testing.data_path(download=False))
+    subjects_dir = op.join(data_path, 'subjects')
+
+    # WA_DeleteOnClose means this frame's underlying C++ object is gone
+    # once we close it below, so don't also register it with qtbot for
+    # auto-close at teardown -- that would double-close it.
+    frame = FiducialsFrame(subject='sample', subjects_dir=subjects_dir)
+
+    # the head surface and fiducial point glyphs should be plotted
+    assert frame.mri_obj.surf is not None
+    assert frame.mri_obj.points.shape[1] == 3
+    assert frame.lpa_obj.glyph is not None
+
+    # head views should not raise and should move the camera
+    for view in ('front', 'left', 'right', 'top'):
+        frame.headview.on_set_view(view)
+
+    for interaction in ('trackball', 'terrain'):
+        frame.headview.interaction = interaction
+
+    pt = frame.mri_obj.points[100]
+
+    class _FakePicker:
+        def GetActor(self):
+            return frame.mri_obj.surf
+
+    class _OtherPicker:
+        def GetActor(self):
+            return None
+
+    # picking while fiducials are locked should be ignored
+    before = frame.model.lpa.copy()
+    frame.model.lock_fiducials = True
+    frame.panel._on_pick(pt, _FakePicker())
+    assert_array_equal(frame.model.lpa, before)
+
+    # an empty pick (no intersection) should be ignored without raising
+    frame.model.lock_fiducials = False
+    frame.panel._on_pick(None, _FakePicker())
+    assert_array_equal(frame.model.lpa, before)
+
+    # picking on the head surface should move the active fiducial
+    frame.panel._on_pick(pt, _FakePicker())
+    assert_array_equal(np.asarray(frame.model.lpa), [pt])
+
+    # picking something other than the head surface should be ignored
+    before = frame.model.nasion.copy()
+    frame.panel.set = 'Nasion'
+    frame.panel._on_pick(pt, _OtherPicker())
+    assert_array_equal(frame.model.nasion, before)
+
+    frame.model.can_save = False  # avoid the unsaved-changes dialog on close
+    frame.close()

@@ -24,13 +24,11 @@ from mne.io.constants import FIFF
 from mne.surface import complete_surface_info, decimate_surface
 from mne.utils import get_subjects_dir, logger, warn
 
-from ._viewer import activate_mayavi_scene, embed_mayavi_scene
-
-from ._utils import _toggle_mlab_render
 from ._file_traits import (SurfaceSource, FiducialsSource,
                            MRISubjectSource, SubjectSelectorPanel,
                            Surf)
-from ._viewer import HeadViewController, PointObject, SurfaceObject
+from ._viewer import (HeadViewController, PointObject, SurfaceObject,
+                      embed_pyvista_scene)
 
 defaults = DEFAULTS['coreg']
 
@@ -76,11 +74,12 @@ class MRIHeadWithFiducialsModel(HasTraits):
     parent = Any()  # QWidget | None, for parenting dialogs
 
     def __init__(self, **kwargs):
-        # subjects_dir/subject trigger _on_subject_changed, which needs
-        # subject_source to already exist -- defer applying them until
-        # after the defaults below are set up.
+        # subjects_dir/subject/parent trigger observers that need the
+        # sub-models to already exist -- defer applying them until after
+        # the defaults below are set up.
         subjects_dir = kwargs.pop('subjects_dir', None)
         subject = kwargs.pop('subject', None)
+        parent = kwargs.pop('parent', None)
         super().__init__(**kwargs)
         # Sub-models must exist before lpa/nasion/rpa are assigned below,
         # since those assignments fire observers that read self.fid etc.
@@ -92,10 +91,6 @@ class MRIHeadWithFiducialsModel(HasTraits):
             self.bem_high_res = SurfaceSource()
         if self.fid is None:
             self.fid = FiducialsSource()
-        for sub_model in (self.subject_source, self.bem_low_res,
-                         self.bem_high_res, self.fid):
-            sub_model.parent = self.parent
-
         zeros = np.zeros((1, 3))
         if self.lpa is None:
             self.lpa = zeros.copy()
@@ -121,6 +116,8 @@ class MRIHeadWithFiducialsModel(HasTraits):
             self.subjects_dir = subjects_dir
         if subject is not None:
             self.subject = subject
+        if parent is not None:
+            self.parent = parent
 
     @observe('parent')
     def _parent_changed(self, change):
@@ -338,37 +335,27 @@ class FiducialsPanel(HasTraits):
                 return
         self.model.save(path)
 
-    def _on_pick(self, picker):
-        """Handle a mayavi pick event — position the active fiducial."""
+    def _on_pick(self, point, picker):
+        """Handle a pyvista pick event — position the active fiducial."""
         if self.model.lock_fiducials:
             return
 
         self.picker = picker
-        n_pos = len(picker.picked_positions)
-        if n_pos == 0:
+        if point is None:
             logger.debug("GUI: picked empty location")
             return
 
         hsp_surf = self.hsp_obj.surf if self.hsp_obj else None
-        if hsp_surf is None:
-            return
-
-        if picker.actor is hsp_surf.actor.actor:
-            pt = [picker.pick_position]
-        elif hsp_surf.actor.actor in picker.actors:
-            idxs = [i for i in range(n_pos) if
-                    picker.actors[i] is hsp_surf.actor.actor]
-            pt = [picker.picked_positions[idxs[-1]]]
-        else:
+        if hsp_surf is None or picker.GetActor() is not hsp_surf:
             logger.debug("GUI: picked object other than MRI")
             return
 
         set_ = self.set.lower()
-        setattr(self.model, set_, pt)
+        setattr(self.model, set_, np.atleast_2d(point))
 
 
 class FiducialsFrame(QMainWindow):
-    """Qt window for setting MRI fiducials with a mayavi 3D scene.
+    """Qt window for setting MRI fiducials with a pyvista 3D scene.
 
     Parameters
     ----------
@@ -386,11 +373,10 @@ class FiducialsFrame(QMainWindow):
         # --- model layer ---
         self.model = MRIHeadWithFiducialsModel(parent=self)
 
-        # Mayavi scene embedded directly via the toolkit scene class
-        # (no traitsui needed; see _viewer.embed_mayavi_scene).
+        # pyvista scene embedded directly as a QWidget.
         self._scene_widget = QWidget(self)
         QVBoxLayout(self._scene_widget)
-        self.scene = embed_mayavi_scene(self._scene_widget)
+        self.scene = embed_pyvista_scene(self._scene_widget)
 
         self.headview = HeadViewController(scene=self.scene, system='RAS')
         self.panel = FiducialsPanel(model=self.model, headview=self.headview)
@@ -410,13 +396,10 @@ class FiducialsFrame(QMainWindow):
         # Load subjects_dir / subject if provided
         subjects_dir = get_subjects_dir(subjects_dir)
         if subjects_dir:
-            self.spanel.subjects_dir = subjects_dir
+            self.spanel.subjects_dir = str(subjects_dir)
         if subject and subject in self.spanel.subjects:
             self.spanel.subject = subject
 
-        # Activate the scene now that all 'activated' listeners (headview,
-        # this frame) are registered, then initialize the 3D plot.
-        activate_mayavi_scene(self.scene)
         self._init_plot()
 
     # ------------------------------------------------------------------
@@ -553,9 +536,7 @@ class FiducialsFrame(QMainWindow):
     # ------------------------------------------------------------------
 
     def _init_plot(self):
-        _toggle_mlab_render(self, False)
-
-        color = defaults['mri_color']
+        color = defaults['head_color']
         src = self.model.bem_low_res
         self.mri_obj = SurfaceObject(
             points=src.surf.rr if src.surf else np.empty((0, 3)),
@@ -590,11 +571,13 @@ class FiducialsFrame(QMainWindow):
                 obj.points = v
 
         self.headview.on_set_view('left')
-        _toggle_mlab_render(self, True)
 
-        # Mouse picking for fiducial placement
-        self.scene.mayavi_scene.on_mouse_pick(
-            self.panel._on_pick, type='cell')
+        # Mouse picking for fiducial placement: only the head surface
+        # (added with pickable=True in SurfaceObject.plot) is pickable.
+        self.scene.enable_surface_point_picking(
+            callback=self.panel._on_pick, show_message=False,
+            show_point=False, left_clicking=True, use_picker=True,
+            pickable_window=False)
 
     def _on_mri_src_change(self, change):
         surf = change['new']
