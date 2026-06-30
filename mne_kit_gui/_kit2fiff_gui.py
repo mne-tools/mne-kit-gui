@@ -1016,3 +1016,4 @@ class Kit2FiffFrame(QMainWindow):
         except Exception as exc:
             warn("Error saving GUI configuration:\n%s" % exc)
         event.accept()
+        self.scene.close()

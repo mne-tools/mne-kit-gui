@@ -2,7 +2,6 @@
 #
 # License: BSD-3-Clause
 
-import gc
 from pathlib import Path
 
 import numpy as np
@@ -81,7 +80,7 @@ class _OtherPicker:
 
 
 @testing.requires_testing_data
-def test_fiducials_frame(qtbot):
+def test_fiducials_frame(qtbot, check_gc):
     """Test FiducialsFrame GUI, including the 3D scene and picking."""
     subjects_dir = testing.data_path(download=False) / "subjects"
 
@@ -128,7 +127,3 @@ def test_fiducials_frame(qtbot):
 
     frame.model.can_save = False  # avoid the unsaved-changes dialog on close
     frame.close()
-    # Make macOS happy
-    qtbot.wait(200)  # wait for the close to finish
-    del frame, fake_picker, pt
-    gc.collect()

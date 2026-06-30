@@ -110,7 +110,7 @@ def test_kit2fiff_model(tmp_path):
     assert model.sqd_file == ""
 
 
-def test_kit2fiff_gui(qtbot, tmp_path, monkeypatch):
+def test_kit2fiff_gui(qtbot, check_gc, tmp_path, monkeypatch):
     """Test Kit2Fiff GUI."""
     monkeypatch.setenv("_MNE_FAKE_HOME_DIR", str(tmp_path))
 
@@ -128,7 +128,8 @@ def test_kit2fiff_gui(qtbot, tmp_path, monkeypatch):
 
     # test setting persistence
     frame = mne_kit_gui.kit2fiff(block=False)
-    qtbot.addWidget(frame)
+    with qtbot.wait_exposed(frame):
+        pass
     assert frame.model.stim_threshold == 10.0
     assert frame.model.stim_chs == "save this!"
 
@@ -150,3 +151,4 @@ def test_kit2fiff_gui(qtbot, tmp_path, monkeypatch):
     frame.model.clear_all()
     assert_array_equal(frame.marker_panel.mrk1_obj.points, 0)
     assert_array_equal(frame.marker_panel.mrk3_obj.points, 0)
+    frame.close()
