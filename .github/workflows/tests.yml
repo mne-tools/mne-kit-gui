@@ -56,5 +56,5 @@ jobs:
       - run: pytest --tb=short --cov=mne_kit_gui --cov-report=xml --cov-report=html -vvv mne_kit_gui
       - uses: codecov/codecov-action@v7
         with:
-          token: ebcd818a-7a71-470d-b667-7cd9c3003c7d
+          token: 325dd076-62e1-4ca3-9e9a-c510d101e173
         if: success() || failure()
