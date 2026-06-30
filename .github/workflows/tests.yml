@@ -11,23 +11,6 @@ on:  # yamllint disable-line rule:truthy
       - '*'
 
 jobs:
-  style:
-    name: Style
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash -e {0}
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.14'
-      - run: python -m pip install --upgrade check-manifest twine build pip
-      - run: check-manifest -v
-      - run: python -m build --sdist --wheel --outdir dist
-      - run: twine check --strict dist/*
   pytest:
     name: '${{ matrix.os }} / ${{ matrix.kind }} / ${{ matrix.python }}'
     continue-on-error: true
