@@ -4,6 +4,11 @@ repos:
     hooks:
       - id: ruff-check
         args: ["--fix"]
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.20
+    hooks:
+      - id: ruff-format
+        args: ["--fix"]
   - repo: https://github.com/adrienverge/yamllint
     rev: v1.38.0
     hooks:
