@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from numpy.testing import assert_array_equal
+from numpy.testing import assert_allclose, assert_array_equal
 
 from qtpy.QtWidgets import QDialog
 
@@ -15,6 +15,7 @@ from mne.io.kit import read_mrk
 from mne_kit_gui._marker_gui import (
     CombineMarkersModel,
     CombineMarkersPanel,
+    EditPointsDialog,
     MarkerPointSource,
     ReorderDialog,
     _write_dig_points,
@@ -164,8 +165,34 @@ def test_reorder_dialog(qtbot, mocker):
     src.reorder()
     assert_array_equal(src.points[0], [12, 13, 14])
 
-    # edit() is currently a no-op placeholder
+
+def test_edit_points_dialog(qtbot):
+    """Test EditPointsDialog reads back the (possibly edited) coordinates."""
+    points = np.arange(15).reshape(5, 3).astype(float) / 100
+    dlg = EditPointsDialog(points)
+    qtbot.addWidget(dlg)
+    assert_allclose(dlg.points, points, atol=1e-6)
+    # editing a spin box is reflected in the returned points
+    dlg._spins[0][0].setValue(0.123456)
+    assert_allclose(dlg.points[0, 0], 0.123456, atol=1e-9)
+
+
+def test_marker_source_edit(qtbot, mocker):
+    """Test MarkerPointSource.edit applies an accepted dialog's points."""
+    src = MarkerPointSource()
+    new_points = np.arange(15).reshape(5, 3).astype(float) / 10
+
+    fake_dlg = mocker.Mock()
+    fake_dlg.exec_.return_value = QDialog.Accepted
+    fake_dlg.points = new_points
+    mocker.patch("mne_kit_gui._marker_gui.EditPointsDialog", return_value=fake_dlg)
     src.edit()
+    assert_array_equal(src.points, new_points)
+
+    # a cancelled dialog leaves the points unchanged
+    fake_dlg.exec_.return_value = QDialog.Rejected
+    src.edit()
+    assert_array_equal(src.points, new_points)
 
 
 def test_combine_markers_panel():

@@ -13,6 +13,8 @@ from threading import Thread
 import numpy as np
 
 from qtpy.QtWidgets import (
+    QCheckBox,
+    QColorDialog,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
@@ -27,6 +29,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 from qtpy.QtCore import Qt
+from qtpy.QtGui import QColor
 
 from traitlets import Bool, Float, HasTraits, Any, Int, List, Unicode, observe
 
@@ -757,59 +760,183 @@ class Kit2FiffFrame(QMainWindow):
 
     def _build_marker_column(self):
         layout = QVBoxLayout()
-        g1 = QGroupBox("Source Marker 1")
-        self._mrk1_file_edit = self._make_file_row(
-            g1,
-            "mrk1",
-            "*.sqd *.mrk *.txt *.pickled",
-            lambda p: setattr(self.model.markers.mrk1, "file", p),
+        markers = self.model.markers
+        mp = self.marker_panel
+        wildcard = "*.sqd *.mrk *.txt *.pickled"
+        layout.addWidget(
+            self._build_source_marker_group(
+                "Source Marker 1", "mrk1", markers.mrk1, mp.mrk1_obj, wildcard
+            )
         )
-        layout.addWidget(g1)
-
-        g2 = QGroupBox("Source Marker 2")
-        self._mrk2_file_edit = self._make_file_row(
-            g2,
-            "mrk2",
-            "*.sqd *.mrk *.txt *.pickled",
-            lambda p: setattr(self.model.markers.mrk2, "file", p),
+        layout.addWidget(
+            self._build_source_marker_group(
+                "Source Marker 2", "mrk2", markers.mrk2, mp.mrk2_obj, wildcard
+            )
         )
-        layout.addWidget(g2)
 
         g3 = QGroupBox("Stats")
         g3_layout = QVBoxLayout(g3)
         self._distance_label = QLabel("")
         g3_layout.addWidget(self._distance_label)
-        self.model.markers.observe(
+        markers.observe(
             lambda ch: self._distance_label.setText(ch["new"]), names=["distance"]
         )
         layout.addWidget(g3)
 
         g4 = QGroupBox("New Marker")
+        g4_layout = QVBoxLayout(g4)
         method_combo = QComboBox()
         method_combo.addItems(["Transform", "Average"])
         method_combo.currentTextChanged.connect(
-            lambda t: setattr(self.model.markers.mrk3, "method", t)
+            lambda t: setattr(markers.mrk3, "method", t)
         )
-        self._make_file_row_layout(g4, QVBoxLayout(g4), method_combo)
+        g4_layout.addWidget(method_combo)
+        save3 = QPushButton("Save As...")
+        save3.setObjectName("mrk3_save")
+        save3.clicked.connect(lambda *_: markers.mrk3.save_as())
+        save3.setEnabled(markers.mrk3.can_save)
+        markers.mrk3.observe(lambda ch: save3.setEnabled(ch["new"]), names=["can_save"])
+        g4_layout.addWidget(save3)
+        g4_layout.addLayout(self._build_point_object_row("mrk3", mp.mrk3_obj))
         layout.addWidget(g4)
         return layout
 
-    def _make_file_row(self, parent_widget, label, wildcard, callback):
-        layout = QVBoxLayout(parent_widget)
+    def _build_source_marker_group(self, title, name, mrk, obj, wildcard):
+        """Build a group box with the full set of controls for one source."""
+        g = QGroupBox(title)
+        layout = QVBoxLayout(g)
+        layout.addLayout(self._build_marker_file_row(name, mrk, wildcard))
+        layout.addLayout(self._build_marker_use_row(name, mrk))
+        layout.addLayout(self._build_marker_button_row(name, mrk))
+        layout.addLayout(self._build_point_object_row(name, obj))
+        return g
+
+    def _build_marker_file_row(self, name, mrk, wildcard):
+        # the (read-only) line edit mirrors the model's file path
         row = QHBoxLayout()
         edit = QLineEdit()
+        edit.setObjectName("%s_file" % name)
+        edit.setReadOnly(True)
         edit.setPlaceholderText("File path...")
-        btn = QPushButton("Browse")
-        btn.clicked.connect(lambda: self._browse_file(edit, wildcard, callback))
+        browse = QPushButton("Browse")
+        browse.setObjectName("%s_browse" % name)
+        browse.clicked.connect(
+            lambda: self._browse_file(edit, wildcard, lambda p: setattr(mrk, "file", p))
+        )
+        mrk.observe(lambda ch: edit.setText(ch["new"]), names=["file"])
         row.addWidget(edit)
-        row.addWidget(btn)
-        layout.addLayout(row)
-        return edit
+        row.addWidget(browse)
+        return row
 
-    def _make_file_row_layout(self, parent_widget, layout, extra_widget):
+    def _build_marker_use_row(self, name, mrk):
+        # checkboxes selecting which points (0-4) feed the interpolation
         row = QHBoxLayout()
-        row.addWidget(extra_widget)
-        layout.addLayout(row)
+        row.addWidget(QLabel("Use:"))
+        checks = []
+        for i in range(5):
+            cb = QCheckBox(str(i))
+            cb.setObjectName("%s_use_%i" % (name, i))
+            cb.setChecked(i in mrk.use)
+            cb.setEnabled(mrk.enabled)
+            cb.toggled.connect(
+                lambda checked, idx=i: self._toggle_use(mrk, idx, checked)
+            )
+            row.addWidget(cb)
+            checks.append(cb)
+
+        def _sync_use(change):
+            for idx, cb in enumerate(checks):
+                cb.blockSignals(True)
+                cb.setChecked(idx in change["new"])
+                cb.blockSignals(False)
+
+        mrk.observe(_sync_use, names=["use"])
+        mrk.observe(
+            lambda ch: [cb.setEnabled(ch["new"]) for cb in checks], names=["enabled"]
+        )
+        return row
+
+    def _build_marker_button_row(self, name, mrk):
+        # Clear and Save As are gated on there being data (can_save)
+        row = QHBoxLayout()
+        gated = []
+        for key, label, handler in (
+            ("clear", "Clear", mrk.clear),
+            ("edit", "Edit", mrk.edit),
+            ("switch", "Switch L/R", mrk.switch_left_right),
+            ("reorder", "Reorder", mrk.reorder),
+            ("save", "Save As...", mrk.save_as),
+        ):
+            btn = QPushButton(label)
+            btn.setObjectName("%s_%s" % (name, key))
+            btn.clicked.connect(lambda *_, h=handler: h())
+            btn.setEnabled(mrk.can_save if key in ("clear", "save") else True)
+            row.addWidget(btn)
+            if key in ("clear", "save"):
+                gated.append(btn)
+        mrk.observe(
+            lambda ch: [btn.setEnabled(ch["new"]) for btn in gated], names=["can_save"]
+        )
+        return row
+
+    def _build_point_object_row(self, name, obj):
+        """Build visualization controls (Show/color/Size/Label) for a glyph."""
+        row = QHBoxLayout()
+
+        show = QCheckBox("Show")
+        show.setObjectName("%s_show" % name)
+        show.setChecked(obj.visible)
+        show.toggled.connect(lambda checked: setattr(obj, "visible", checked))
+        obj.observe(lambda ch: show.setChecked(ch["new"]), names=["visible"])
+        row.addWidget(show)
+
+        color = QPushButton("Color")
+        color.setObjectName("%s_color" % name)
+        color.clicked.connect(lambda: self._pick_color(obj))
+        self._set_color_swatch(color, obj.color)
+        obj.observe(
+            lambda ch: self._set_color_swatch(color, ch["new"]), names=["color"]
+        )
+        row.addWidget(color)
+
+        row.addWidget(QLabel("Size:"))
+        size = QDoubleSpinBox()
+        size.setObjectName("%s_size" % name)
+        size.setDecimals(4)
+        size.setRange(0.0, 1.0)
+        size.setSingleStep(1e-3)
+        size.setValue(obj.point_scale)
+        size.valueChanged.connect(lambda v: setattr(obj, "point_scale", v))
+        obj.observe(lambda ch: size.setValue(ch["new"]), names=["point_scale"])
+        row.addWidget(size)
+
+        label = QCheckBox("Label")
+        label.setObjectName("%s_label" % name)
+        label.setChecked(obj.label)
+        label.toggled.connect(lambda checked: setattr(obj, "label", checked))
+        obj.observe(lambda ch: label.setChecked(ch["new"]), names=["label"])
+        row.addWidget(label)
+
+        return row
+
+    @staticmethod
+    def _set_color_swatch(button, color):
+        button.setStyleSheet(
+            "background-color: %s" % QColor.fromRgbF(*color[:3]).name()
+        )
+
+    def _pick_color(self, obj):
+        qcolor = QColorDialog.getColor(QColor.fromRgbF(*obj.color[:3]), self)
+        if qcolor.isValid():
+            obj.color = (qcolor.redF(), qcolor.greenF(), qcolor.blueF())
+
+    def _toggle_use(self, mrk, idx, checked):
+        use = set(mrk.use)
+        if checked:
+            use.add(idx)
+        else:
+            use.discard(idx)
+        mrk.use = sorted(use)
 
     def _browse_file(self, edit, wildcard, callback):
         path, _ = QFileDialog.getOpenFileName(self, "Select File", "", wildcard)

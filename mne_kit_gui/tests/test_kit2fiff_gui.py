@@ -8,6 +8,15 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
+from qtpy.QtGui import QColor
+from qtpy.QtWidgets import (
+    QCheckBox,
+    QDialog,
+    QDoubleSpinBox,
+    QLineEdit,
+    QPushButton,
+)
+
 import mne
 from mne.io import read_raw_fif
 import mne_kit_gui
@@ -309,7 +318,7 @@ def test_load_model_config_invalid(tmp_path, monkeypatch):
     assert model.stim_coding == ">"
 
 
-def test_kit2fiff_gui(qtbot, check_gc, tmp_path, monkeypatch):
+def test_kit2fiff_gui(qtbot, check_gc, tmp_path, monkeypatch, mocker):
     """Test Kit2Fiff GUI."""
     monkeypatch.setenv("_MNE_FAKE_HOME_DIR", str(tmp_path))
 
@@ -347,6 +356,89 @@ def test_kit2fiff_gui(qtbot, check_gc, tmp_path, monkeypatch):
     assert_allclose(frame.marker_panel.mrk3_obj.points, points, atol=1e-6)
     frame.marker_panel.mrk1_obj.label = True
     frame.marker_panel.mrk1_obj.label = False
+
+    # --- exercise the marker-panel controls (dialogs mocked) ---
+    mrk1 = frame.model.markers.mrk1
+    # the file path field mirrors the loaded file
+    assert frame.findChild(QLineEdit, "mrk1_file").text() == str(mrk_pre_path)
+    # Clear/Save As are enabled once data is present
+    clear_btn = frame.findChild(QPushButton, "mrk1_clear")
+    assert clear_btn.isEnabled()
+    assert frame.findChild(QPushButton, "mrk1_save").isEnabled()
+
+    # toggling a "use" checkbox updates the model, and model changes sync back
+    cb0 = frame.findChild(QCheckBox, "mrk1_use_0")
+    assert cb0.isChecked()
+    cb0.setChecked(False)
+    assert 0 not in mrk1.use
+    cb0.setChecked(True)
+    assert 0 in mrk1.use
+    mrk1.use = [1, 2, 3, 4]  # model change syncs the checkbox back
+    assert not cb0.isChecked()
+    mrk1.use = [0, 1, 2, 3, 4]
+
+    # the Browse button routes the chosen path into the model
+    mock_open = mocker.patch("mne_kit_gui._kit2fiff_gui.QFileDialog")
+    mock_open.getOpenFileName.return_value = (str(mrk_post_path), "")
+    frame.findChild(QPushButton, "mrk1_browse").click()
+    assert mrk1.file == str(mrk_post_path)
+    mocker.stopall()
+
+    # Switch L/R swaps the points
+    before = mrk1.points.copy()
+    frame.findChild(QPushButton, "mrk1_switch").click()
+    assert_array_equal(mrk1.points, before[[1, 0, 2, 4, 3]])
+
+    # per-object visualization controls (Show / Size / Label / Color)
+    mrk1_obj = frame.marker_panel.mrk1_obj
+    show = frame.findChild(QCheckBox, "mrk1_show")
+    show.setChecked(not show.isChecked())
+    assert mrk1_obj.visible == show.isChecked()
+    mrk1_obj.visible = True  # model change syncs the checkbox back
+    assert show.isChecked()
+
+    size = frame.findChild(QDoubleSpinBox, "mrk1_size")
+    size.setValue(0.02)
+    assert mrk1_obj.point_scale == 0.02
+
+    lbl = frame.findChild(QCheckBox, "mrk1_label")
+    lbl.setChecked(True)
+    assert mrk1_obj.label
+    lbl.setChecked(False)
+
+    # the Color button routes the picked color into the object
+    mock_color = mocker.patch("mne_kit_gui._kit2fiff_gui.QColorDialog")
+    mock_color.getColor.return_value = QColor.fromRgbF(0.1, 0.2, 0.3)
+    frame.findChild(QPushButton, "mrk1_color").click()
+    assert_allclose(mrk1_obj.color, (0.1, 0.2, 0.3), atol=1e-3)
+    # a cancelled (invalid) color is ignored
+    mock_color.getColor.return_value = QColor()
+    frame.findChild(QPushButton, "mrk1_color").click()
+    assert_allclose(mrk1_obj.color, (0.1, 0.2, 0.3), atol=1e-3)
+    mocker.stopall()
+
+    # Reorder / Edit / Save As open dialogs -> mock them out
+    fake_reorder = mocker.Mock()
+    fake_reorder.exec_.return_value = QDialog.Accepted
+    fake_reorder.index = [0, 1, 2, 3, 4]
+    mocker.patch("mne_kit_gui._marker_gui.ReorderDialog", return_value=fake_reorder)
+    frame.findChild(QPushButton, "mrk1_reorder").click()
+
+    fake_edit = mocker.Mock()
+    fake_edit.exec_.return_value = QDialog.Rejected
+    mocker.patch("mne_kit_gui._marker_gui.EditPointsDialog", return_value=fake_edit)
+    frame.findChild(QPushButton, "mrk1_edit").click()
+
+    mock_fd = mocker.patch("mne_kit_gui._marker_gui.QFileDialog")
+    mock_fd.getSaveFileName.return_value = ("", "")
+    frame.findChild(QPushButton, "mrk1_save").click()
+    frame.findChild(QPushButton, "mrk3_save").click()
+
+    # Clear empties the source and disables the gated buttons
+    frame.findChild(QPushButton, "mrk1_clear").click()
+    assert_array_equal(mrk1.points, np.zeros((5, 3)))
+    assert not clear_btn.isEnabled()
+
     frame.model.clear_all()
     assert_array_equal(frame.marker_panel.mrk1_obj.points, 0)
     assert_array_equal(frame.marker_panel.mrk3_obj.points, 0)

@@ -12,7 +12,9 @@ import numpy as np
 from qtpy.QtWidgets import (
     QDialog,
     QDialogButtonBox,
+    QDoubleSpinBox,
     QFileDialog,
+    QGridLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -72,6 +74,43 @@ class ReorderDialog(QDialog):
         if sorted(idx) == [0, 1, 2, 3, 4]:
             return idx
         return None
+
+
+class EditPointsDialog(QDialog):
+    """Dialog for manually editing the five marker point coordinates."""
+
+    def __init__(self, points, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Edit Marker Points")
+        layout = QVBoxLayout(self)
+        grid = QGridLayout()
+        for col, head in enumerate(("x", "y", "z")):
+            grid.addWidget(QLabel(head), 0, col + 1)
+        self._spins = []
+        for r in range(5):
+            grid.addWidget(QLabel(str(r)), r + 1, 0)
+            row = []
+            for c in range(3):
+                spin = QDoubleSpinBox()
+                spin.setDecimals(6)
+                spin.setRange(-1.0, 1.0)
+                spin.setSingleStep(1e-3)
+                spin.setValue(float(points[r, c]))
+                grid.addWidget(spin, r + 1, c + 1)
+                row.append(spin)
+            self._spins.append(row)
+        layout.addLayout(grid)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=self
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    @property
+    def points(self):
+        """The edited points as an (5, 3) array."""
+        return np.array([[spin.value() for spin in row] for row in self._spins], float)
 
 
 class MarkerPoints(HasTraits):
@@ -175,9 +214,10 @@ class MarkerPointSource(MarkerPoints):  # noqa: D401
         self.use = list(range(5))
 
     def edit(self):
-        """Open an edit dialog for manual coordinate entry."""
-        # Phase 1: placeholder — will be a proper QDialog in the Qt layer
-        pass
+        """Open a dialog for manual coordinate entry."""
+        dlg = EditPointsDialog(self.points, self.parent)
+        if dlg.exec_() == QDialog.Accepted:
+            self.points = dlg.points
 
     def reorder(self):
         """Prompt for a new point order and apply it."""
