@@ -3,14 +3,13 @@
 #
 # License: BSD-3-Clause
 
-import os.path as op
 import shutil
 
 import pytest
 
 from mne.datasets import testing
 data_path = testing.data_path(download=False)
-subjects_dir = op.join(data_path, 'subjects')
+subjects_dir = data_path / 'subjects'
 
 
 def pytest_configure(config):
@@ -43,11 +42,11 @@ def pytest_configure(config):
 
 
 @pytest.fixture(scope='function', params=[testing._pytest_param()])
-def subjects_dir_tmp(tmpdir):
+def subjects_dir_tmp(tmp_path):
     """Copy MNE-testing-data subjects_dir to a temp dir for manipulation."""
     for key in ('sample', 'fsaverage'):
-        shutil.copytree(op.join(subjects_dir, key), str(tmpdir.join(key)))
-    return str(tmpdir)
+        shutil.copytree(subjects_dir / key, tmp_path / key)
+    return tmp_path
 
 
 @pytest.fixture(autouse=True)

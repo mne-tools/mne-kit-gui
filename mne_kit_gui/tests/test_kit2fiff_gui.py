@@ -2,7 +2,7 @@
 #
 # License: BSD-3-Clause
 
-import os.path as op
+from pathlib import Path
 
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
@@ -11,32 +11,31 @@ import mne
 from mne.io import read_raw_fif
 import mne_kit_gui
 
-kit_data_dir = op.join(op.dirname(__file__), 'data')
-mrk_pre_path = op.join(kit_data_dir, 'test_mrk_pre.sqd')
-mrk_post_path = op.join(kit_data_dir, 'test_mrk_post.sqd')
-sqd_path = op.join(kit_data_dir, 'test.sqd')
-hsp_path = op.join(kit_data_dir, 'test_hsp.txt')
-fid_path = op.join(kit_data_dir, 'test_elp.txt')
-fif_path = op.join(kit_data_dir, 'test_bin_raw.fif')
+kit_data_dir = Path(__file__).parent / 'data'
+mrk_pre_path = kit_data_dir / 'test_mrk_pre.sqd'
+mrk_post_path = kit_data_dir / 'test_mrk_post.sqd'
+sqd_path = kit_data_dir / 'test.sqd'
+hsp_path = kit_data_dir / 'test_hsp.txt'
+fid_path = kit_data_dir / 'test_elp.txt'
+fif_path = kit_data_dir / 'test_bin_raw.fif'
 
 
-def test_kit2fiff_model(tmpdir):
+def test_kit2fiff_model(tmp_path):
     """Test Kit2Fiff model."""
     from mne_kit_gui._kit2fiff_gui import Kit2FiffModel
-    tempdir = str(tmpdir)
-    tgt_fname = op.join(tempdir, 'test-raw.fif')
+    tgt_fname = tmp_path / 'test-raw.fif'
 
     model = Kit2FiffModel()
     assert not model.can_save
     assert model.misc_chs_desc == "No SQD file selected..."
     assert model.stim_chs_comment == ""
-    model.markers.mrk1.file = mrk_pre_path
-    model.markers.mrk2.file = mrk_post_path
-    model.sqd_file = sqd_path
+    model.markers.mrk1.file = str(mrk_pre_path)
+    model.markers.mrk2.file = str(mrk_post_path)
+    model.sqd_file = str(sqd_path)
     assert model.misc_chs_desc == "160:192"
-    model.hsp_file = hsp_path
+    model.hsp_file = str(hsp_path)
     assert not model.can_save
-    model.fid_file = fid_path
+    model.fid_file = str(fid_path)
     assert model.can_save
 
     # events
@@ -110,10 +109,9 @@ def test_kit2fiff_model(tmpdir):
     assert model.sqd_file == ""
 
 
-def test_kit2fiff_gui(qtbot, tmpdir, monkeypatch):
+def test_kit2fiff_gui(qtbot, tmp_path, monkeypatch):
     """Test Kit2Fiff GUI."""
-    home_dir = str(tmpdir)
-    monkeypatch.setenv('_MNE_FAKE_HOME_DIR', home_dir)
+    monkeypatch.setenv('_MNE_FAKE_HOME_DIR', str(tmp_path))
 
     # WA_DeleteOnClose means this frame's underlying C++ object is gone
     # once we close it below, so don't also register it with qtbot for
@@ -124,7 +122,7 @@ def test_kit2fiff_gui(qtbot, tmpdir, monkeypatch):
     assert frame.model.stim_threshold == 1.
     frame.model.stim_threshold = 10.
     frame.model.stim_chs = 'save this!'
-    frame.save_config(home_dir)
+    frame.save_config(str(tmp_path))
     frame.close()
 
     # test setting persistence
@@ -141,7 +139,7 @@ def test_kit2fiff_gui(qtbot, tmpdir, monkeypatch):
               [0.042976, 0.094380, 0.010807]]
     assert_array_equal(frame.marker_panel.mrk1_obj.points, 0)
     assert_array_equal(frame.marker_panel.mrk3_obj.points, 0)
-    frame.model.markers.mrk1.file = mrk_pre_path
+    frame.model.markers.mrk1.file = str(mrk_pre_path)
     assert_allclose(frame.marker_panel.mrk1_obj.points, points, atol=1e-6)
     assert_allclose(frame.marker_panel.mrk3_obj.points, points, atol=1e-6)
     frame.marker_panel.mrk1_obj.label = True

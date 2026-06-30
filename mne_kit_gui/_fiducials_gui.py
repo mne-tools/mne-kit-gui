@@ -5,7 +5,7 @@
 #
 # License: BSD-3-Clause
 
-import os
+from pathlib import Path
 
 import numpy as np
 
@@ -206,7 +206,7 @@ class MRIHeadWithFiducialsModel(HasTraits):
                 'ident': FIFF.FIFFV_POINT_RPA,
                 'r': np.array(self.rpa[0])}]
         write_fiducials(fname, dig, FIFF.FIFFV_COORD_MRI)
-        self.fid.file = fname
+        self.fid.file = str(fname)
 
     def load_subject(self, subject=None, subjects_dir=None):
         """Load head surface and fiducial info for the given subject."""
@@ -325,15 +325,16 @@ class FiducialsPanel(HasTraits):
             parent, "Save Fiducials", default, "Fiducials (*.fif)")
         if not path:
             return
-        if not path.endswith('.fif'):
-            path += '.fif'
-        if os.path.exists(path):
+        path = Path(path)
+        if path.suffix != '.fif':
+            path = path.with_name(path.name + '.fif')
+        if path.exists():
             ans = QMessageBox.question(
                 parent, "Overwrite File?",
-                "The file %r already exists. Replace it?" % path)
+                "The file %r already exists. Replace it?" % str(path))
             if ans != QMessageBox.Yes:
                 return
-        self.model.save(path)
+        self.model.save(str(path))
 
     def _on_pick(self, point, picker):
         """Handle a pyvista pick event — position the active fiducial."""

@@ -5,8 +5,16 @@
 #
 # License: BSD-3-Clause
 
+# Path handling convention used throughout mne_kit_gui: traitlets has no
+# native Path trait, and Qt widgets (QFileDialog, QLineEdit) only deal in
+# str, so file/directory paths are stored as `Unicode()` traits. Internally,
+# wrap them in `pathlib.Path` for any actual path manipulation (joining,
+# checking existence, getting the basename/parent/suffix, etc.), then
+# convert back to `str` at the point where a Path would otherwise flow into
+# a trait assignment or a Qt call.
+
 import os
-import os.path as op
+from pathlib import Path
 
 import numpy as np
 
@@ -39,7 +47,7 @@ trans_wildcard = "*.fif"
 
 
 def _expand_path(p):
-    return op.abspath(op.expandvars(op.expanduser(p)))
+    return str(Path(os.path.expandvars(p)).expanduser().absolute())
 
 
 def get_fs_home(parent=None):
@@ -116,13 +124,12 @@ def _fs_home_problem(fs_home):
     """
     if fs_home is None:
         return "FREESURFER_HOME is not set."
-    elif not op.exists(fs_home):
+    fs_home = Path(fs_home)
+    if not fs_home.exists():
         return "FREESURFER_HOME (%s) does not exist." % fs_home
-    else:
-        test_dir = op.join(fs_home, 'subjects', 'fsaverage')
-        if not op.exists(test_dir):
-            return ("FREESURFER_HOME (%s) does not contain the fsaverage "
-                    "subject." % fs_home)
+    if not (fs_home / 'subjects' / 'fsaverage').exists():
+        return ("FREESURFER_HOME (%s) does not contain the fsaverage "
+                "subject." % fs_home)
 
 
 def _mne_root_problem(mne_root):
@@ -132,13 +139,12 @@ def _mne_root_problem(mne_root):
     """
     if mne_root is None:
         return "MNE_ROOT is not set."
-    elif not op.exists(mne_root):
+    mne_root = Path(mne_root)
+    if not mne_root.exists():
         return "MNE_ROOT (%s) does not exist." % mne_root
-    else:
-        test_dir = op.join(mne_root, 'share', 'mne', 'mne_analyze')
-        if not op.exists(test_dir):
-            return ("MNE_ROOT (%s) is missing files. If this is your MNE "
-                    "installation, consider reinstalling." % mne_root)
+    if not (mne_root / 'share' / 'mne' / 'mne_analyze').exists():
+        return ("MNE_ROOT (%s) is missing files. If this is your MNE "
+                "installation, consider reinstalling." % mne_root)
 
 
 class Surf:
@@ -179,9 +185,9 @@ class SurfaceSource(HasTraits):
     @observe('file')
     def _file_changed(self, change):
         """Read the file."""
-        path = change['new']
-        if path and op.exists(path):
-            if path.endswith('.fif'):
+        path = Path(change['new']) if change['new'] else None
+        if path is not None and path.exists():
+            if path.suffix == '.fif':
                 bem = read_bem_surfaces(
                     path, on_defects='warn', verbose=False
                 )[0]
@@ -226,9 +232,9 @@ class FiducialsSource(HasTraits):
 
     @observe('file')
     def _file_changed(self, change):
-        path = change['new']
-        self.fname = op.basename(path) if path else ''
-        if path and op.exists(path):
+        path = Path(change['new']) if change['new'] else None
+        self.fname = path.name if path else ''
+        if path is not None and path.exists():
             try:
                 self.points = _fiducial_coords(*read_fiducials(path))
             except Exception as err:
@@ -308,15 +314,15 @@ class DigSource(HasTraits):
 
     @observe('file')
     def _file_changed(self, change):
-        path = change['new']
+        path = Path(change['new']) if change['new'] else None
         self.points_filter = None  # reset filter first
 
-        if not path:
+        if path is None:
             self._reset_derived()
             return
 
-        self.inst_fname = op.basename(path) if path else '-'
-        self.inst_dir = op.dirname(path)
+        self.inst_fname = path.name
+        self.inst_dir = str(path.parent)
 
         info = self._read_info(path)
         self._info = info
@@ -324,7 +330,7 @@ class DigSource(HasTraits):
 
     def _read_info(self, path):
         info = None
-        if path.endswith(('.fif', '.fif.gz')):
+        if path.name.endswith(('.fif', '.fif.gz')):
             try:
                 info = read_info(path, verbose=False)
             except Exception:
@@ -466,17 +472,17 @@ class MRISubjectSource(HasTraits):
         self.subject = self.subject
 
     def _update_subjects(self):
-        sdir = self.subjects_dir
-        if sdir and op.isdir(sdir):
-            dir_content = os.listdir(sdir)
-            subjects = [s for s in dir_content if _is_mri_subject(s, sdir)]
+        sdir = Path(self.subjects_dir) if self.subjects_dir else None
+        if sdir is not None and sdir.is_dir():
+            subjects = [s.name for s in sdir.iterdir()
+                       if _is_mri_subject(s.name, sdir)]
             if not subjects:
                 subjects = ['']
         else:
             subjects = ['']
         self.subjects = sorted(subjects)
         self.can_create_fsaverage = (
-            bool(op.exists(self.subjects_dir)) and
+            sdir is not None and sdir.exists() and
             'fsaverage' not in self.subjects
         )
 
@@ -484,7 +490,7 @@ class MRISubjectSource(HasTraits):
     def _update_bem_and_mri_dir(self, change):
         sdir = self.subjects_dir
         sub = self.subject
-        self.mri_dir = op.join(sdir, sub) if sdir and sub else ''
+        self.mri_dir = str(Path(sdir) / sub) if sdir and sub else ''
         self.subject_has_bem = (
             bool(sub) and _mri_subject_has_bem(sub, sdir)
         )

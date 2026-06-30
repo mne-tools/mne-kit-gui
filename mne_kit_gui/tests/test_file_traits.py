@@ -2,7 +2,7 @@
 #
 # License: BSD-3-Clause
 
-import os.path as op
+from pathlib import Path
 
 from numpy import array
 from numpy.testing import assert_allclose
@@ -13,11 +13,11 @@ from mne.datasets import testing
 from mne.channels import read_dig_fif
 
 data_path = testing.data_path(download=False)
-subjects_dir = op.join(data_path, 'subjects')
-bem_path = op.join(subjects_dir, 'sample', 'bem', 'sample-1280-bem.fif')
-inst_path = op.join(data_path, 'MEG', 'sample', 'sample_audvis_trunc_raw.fif')
-fid_path = op.join(op.dirname(mne.__file__), 'data', 'fsaverage',
-                   'fsaverage-fiducials.fif')
+subjects_dir = data_path / 'subjects'
+bem_path = subjects_dir / 'sample' / 'bem' / 'sample-1280-bem.fif'
+inst_path = data_path / 'MEG' / 'sample' / 'sample_audvis_trunc_raw.fif'
+fid_path = (Path(mne.__file__).parent / 'data' / 'fsaverage' /
+           'fsaverage-fiducials.fif')
 
 
 @testing.requires_testing_data
@@ -29,7 +29,7 @@ def test_bem_source():
     assert bem.surf.rr.shape == (0, 3)
     assert bem.surf.tris.shape == (0, 3)
 
-    bem.file = bem_path
+    bem.file = str(bem_path)
     assert bem.surf.rr.shape == (642, 3)
     assert bem.surf.tris.shape == (1280, 3)
 
@@ -40,7 +40,7 @@ def test_fiducials_source():
     from mne_kit_gui._file_traits import FiducialsSource
 
     fid = FiducialsSource()
-    fid.file = fid_path
+    fid.file = str(fid_path)
 
     points = array([[-0.08061612, -0.02908875, -0.04131077],
                     [0.00146763, 0.08506715, -0.03483611],
@@ -53,16 +53,15 @@ def test_fiducials_source():
 
 @pytest.mark.filterwarnings('ignore:.*does not conform to MNE naming.*:RuntimeWarning')
 @testing.requires_testing_data
-def test_digitization_source(tmpdir):
+def test_digitization_source(tmp_path):
     """Test DigSource."""
     from mne_kit_gui._file_traits import DigSource
-    tempdir = str(tmpdir)
 
     inst = DigSource()
     assert inst.inst_fname == '-'
 
-    inst.file = inst_path
-    assert inst.inst_dir == op.dirname(inst_path)
+    inst.file = str(inst_path)
+    assert inst.inst_dir == str(inst_path.parent)
 
     # FIFF
     lpa = array([[-7.13766068e-02, 0.00000000e+00, 5.12227416e-09]])
@@ -74,15 +73,15 @@ def test_digitization_source(tmpdir):
 
     # DigMontage
     montage = read_dig_fif(inst_path)
-    montage_path = op.join(tempdir, 'temp_montage.fif')
+    montage_path = tmp_path / 'temp_montage.fif'
     montage.save(montage_path)
-    inst.file = montage_path
+    inst.file = str(montage_path)
     assert_allclose(inst.lpa, lpa)
     assert_allclose(inst.nasion, nasion)
     assert_allclose(inst.rpa, rpa)
 
     # EGI MFF
-    inst.file = op.join(data_path, 'EGI', 'test_egi.mff')
+    inst.file = str(data_path / 'EGI' / 'test_egi.mff')
     assert len(inst.points) == 0
     assert len(inst.eeg_points) in (129, 130)  # old vs new MNE
     assert_allclose(inst.lpa * 1000, [[-67.1, 0, 0]], atol=0.1)
@@ -90,7 +89,7 @@ def test_digitization_source(tmpdir):
     assert_allclose(inst.rpa * 1000, [[67.1, 0, 0]], atol=0.1)
 
     # CTF
-    inst.file = op.join(data_path, 'CTF', 'testdata_ctf.ds')
+    inst.file = str(data_path / 'CTF' / 'testdata_ctf.ds')
     assert len(inst.points) == 0
     assert len(inst.eeg_points) == 8
     assert_allclose(inst.lpa * 1000, [[-74.3, 0.0, 0.0]], atol=0.1)
@@ -104,25 +103,24 @@ def test_subject_source():
     from mne_kit_gui._file_traits import MRISubjectSource
 
     mri = MRISubjectSource()
-    mri.subjects_dir = subjects_dir
+    mri.subjects_dir = str(subjects_dir)
     assert 'sample' in mri.subjects
     mri.subject = 'sample'
 
 
 @testing.requires_testing_data
-def test_subject_source_with_fsaverage(tmpdir, monkeypatch):
+def test_subject_source_with_fsaverage(tmp_path, monkeypatch):
     """Test SubjectSelector."""
     from mne_kit_gui._file_traits import MRISubjectSource
-    tempdir = str(tmpdir)
 
     mri = MRISubjectSource()
     assert not mri.can_create_fsaverage
     pytest.raises(RuntimeError, mri.create_fsaverage)
 
-    mri.subjects_dir = tempdir
+    mri.subjects_dir = str(tmp_path)
     assert mri.can_create_fsaverage
-    assert not op.isdir(op.join(tempdir, 'fsaverage'))
+    assert not (tmp_path / 'fsaverage').is_dir()
     # fake FREESURFER_HOME
     monkeypatch.setenv('FREESURFER_HOME', str(data_path))
     mri.create_fsaverage()
-    assert op.isdir(op.join(tempdir, 'fsaverage'))
+    assert (tmp_path / 'fsaverage').is_dir()

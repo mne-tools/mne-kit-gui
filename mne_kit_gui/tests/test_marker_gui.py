@@ -2,40 +2,39 @@
 #
 # License: BSD-3-Clause
 
-import os.path as op
+from pathlib import Path
 
 import numpy as np
 from numpy.testing import assert_array_equal
 
 from mne.io.kit import read_mrk
 
-kit_data_dir = op.join(op.dirname(__file__), 'data')
-mrk_pre_path = op.join(kit_data_dir, 'test_mrk_pre.sqd')
-mrk_post_path = op.join(kit_data_dir, 'test_mrk_post.sqd')
-mrk_avg_path = op.join(kit_data_dir, 'test_mrk.sqd')
+kit_data_dir = Path(__file__).parent / 'data'
+mrk_pre_path = kit_data_dir / 'test_mrk_pre.sqd'
+mrk_post_path = kit_data_dir / 'test_mrk_post.sqd'
+mrk_avg_path = kit_data_dir / 'test_mrk.sqd'
 
 
-def test_combine_markers_model(tmpdir):
+def test_combine_markers_model(tmp_path):
     """Test CombineMarkersModel Traits Model."""
     from mne_kit_gui._marker_gui import CombineMarkersModel
-    tempdir = str(tmpdir)
-    tgt_fname = op.join(tempdir, 'test.txt')
+    tgt_fname = tmp_path / 'test.txt'
 
     model = CombineMarkersModel()
 
     # set one marker file
     assert not model.mrk3.can_save
-    model.mrk1.file = mrk_pre_path
+    model.mrk1.file = str(mrk_pre_path)
     assert model.mrk3.can_save
     assert_array_equal(model.mrk3.points, model.mrk1.points)
 
     # setting second marker file
-    model.mrk2.file = mrk_pre_path
+    model.mrk2.file = str(mrk_pre_path)
     assert_array_equal(model.mrk3.points, model.mrk1.points)
 
     # set second marker
     model.mrk2.clear()
-    model.mrk2.file = mrk_post_path
+    model.mrk2.file = str(mrk_post_path)
     assert np.any(model.mrk3.points)
     points_interpolate_mrk1_mrk2 = model.mrk3.points
 
@@ -49,7 +48,7 @@ def test_combine_markers_model(tmpdir):
     assert_array_equal(model.mrk1.points, model.mrk3.points)
 
     # I/O
-    model.mrk2.file = mrk_post_path
+    model.mrk2.file = str(mrk_post_path)
     model.mrk3.save(tgt_fname)
     mrk_io = read_mrk(tgt_fname)
     assert_array_equal(mrk_io, model.mrk3.points)
@@ -61,8 +60,8 @@ def test_combine_markers_model(tmpdir):
 
     # reset model
     model.clear()
-    model.mrk1.file = mrk_pre_path
-    model.mrk2.file = mrk_post_path
+    model.mrk1.file = str(mrk_pre_path)
+    model.mrk2.file = str(mrk_post_path)
     assert_array_equal(model.mrk3.points, points_interpolate_mrk1_mrk2)
 
 

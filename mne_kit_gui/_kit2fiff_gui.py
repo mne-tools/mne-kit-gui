@@ -7,6 +7,7 @@
 from collections import Counter
 import os
 import queue
+from pathlib import Path
 from threading import Thread
 
 import numpy as np
@@ -133,7 +134,7 @@ class Kit2FiffModel(HasTraits):
     @observe('sqd_file')
     def _sqd_file_changed(self, change):
         fname = change['new']
-        self.sqd_fname = os.path.basename(fname) if fname else '-'
+        self.sqd_fname = Path(fname).name if fname else '-'
         self._recompute_raw()
 
     def _recompute_raw(self):
@@ -190,7 +191,7 @@ class Kit2FiffModel(HasTraits):
     @observe('fid_file')
     def _fid_file_changed(self, change):
         fname = change['new']
-        self.fid_fname = os.path.basename(fname) if fname else '-'
+        self.fid_fname = Path(fname).name if fname else '-'
         self._recompute_elp_raw()
 
     def _recompute_elp_raw(self):
@@ -240,7 +241,7 @@ class Kit2FiffModel(HasTraits):
     @observe('hsp_file')
     def _hsp_file_changed(self, change):
         fname = change['new']
-        self.hsp_fname = os.path.basename(fname) if fname else '-'
+        self.hsp_fname = Path(fname).name if fname else '-'
         self._recompute_hsp_raw()
 
     def _recompute_hsp_raw(self):
@@ -516,7 +517,7 @@ class Kit2FiffPanel(HasTraits):
         def worker():
             while True:
                 raw, fname = self.queue.get()
-                basename = os.path.basename(fname)
+                basename = Path(fname).name
                 self.queue_len -= 1
                 self.queue_current = 'Processing: %s' % basename
                 try:
@@ -558,22 +559,24 @@ class Kit2FiffPanel(HasTraits):
             QMessageBox.critical(parent, "Error Creating KIT Raw", str(err))
             raise
 
-        stem, _ = os.path.splitext(model.sqd_file)
+        sqd_path = Path(model.sqd_file)
+        stem = sqd_path.stem
         if not stem.endswith('raw'):
             stem += '-raw'
-        default_path = stem + '.fif'
+        default_path = sqd_path.with_name(stem + '.fif')
 
         path, _ = QFileDialog.getSaveFileName(
-            parent, "Save FIFF", default_path,
+            parent, "Save FIFF", str(default_path),
             "FIFF raw file (*.fif)")
         if not path:
             return
-        if not path.endswith('.fif'):
-            path += '.fif'
-        if os.path.exists(path):
+        path = Path(path)
+        if path.suffix != '.fif':
+            path = path.with_name(path.name + '.fif')
+        if path.exists():
             ans = QMessageBox.question(
                 parent, "Overwrite File?",
-                "The file %r already exists. Replace it?" % path)
+                "The file %r already exists. Replace it?" % str(path))
             if ans != QMessageBox.Yes:
                 return
 

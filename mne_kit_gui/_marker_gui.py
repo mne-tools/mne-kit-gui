@@ -5,7 +5,7 @@
 # License: BSD-3-Clause
 
 import datetime
-import os
+from pathlib import Path
 
 import numpy as np
 
@@ -93,13 +93,15 @@ class MarkerPoints(HasTraits):
         if not path:
             return
 
-        if not path.endswith(out_ext):
-            path = os.path.splitext(path)[0] + out_ext
+        path = Path(path)
+        if path.suffix != out_ext:
+            path = path.with_suffix(out_ext)
 
-        if os.path.exists(path):
+        if path.exists():
             ans = QMessageBox.question(
                 parent, "Overwrite File?",
-                "The file %r already exists. Should it be replaced?" % path)
+                "The file %r already exists. Should it be replaced?"
+                % str(path))
             if ans != QMessageBox.Yes:
                 return
         self.save(path)
@@ -131,8 +133,9 @@ class MarkerPointSource(MarkerPoints):  # noqa: D401
     def _file_changed(self, change):
         fname = change['new']
         if fname:
-            self.name = os.path.basename(fname)
-            self.dir = os.path.dirname(fname)
+            path = Path(fname)
+            self.name = path.name
+            self.dir = str(path.parent)
         else:
             self.name = ''
             self.dir = ''
@@ -443,7 +446,7 @@ def _write_dig_points(fname, dig_points):
     """
     from mne import __version__
 
-    _, ext = os.path.splitext(fname)
+    ext = Path(fname).suffix
     dig_points = np.asarray(dig_points)
     if (dig_points.ndim != 2) or (dig_points.shape[1] != 3):
         err = "Points must be of shape (n_points, 3), " "not %s" % (dig_points.shape,)
