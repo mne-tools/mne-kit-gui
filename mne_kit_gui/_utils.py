@@ -6,19 +6,14 @@
 
 import numpy as np
 
-from mne.surface import _normalize_vectors
 
-
-def _create_mesh_surf(surf, compute_normals=True):
+def _create_mesh_surf(surf):
     """Create a pyvista PolyData mesh from an MNE surf dict.
 
     Parameters
     ----------
     surf : dict
-        Dict with keys 'rr' (n, 3) and 'tris' (n, 3), and optionally 'nn'.
-    compute_normals : bool
-        If True, compute (smooth) normals with vtk. If False, use the
-        normals in ``surf['nn']`` if present.
+        Dict with keys 'rr' (n, 3) and 'tris' (n, 3).
 
     Returns
     -------
@@ -31,20 +26,14 @@ def _create_mesh_surf(surf, compute_normals=True):
     tris = np.asarray(surf["tris"], int)
     faces = np.c_[np.full(len(tris), 3), tris]
     mesh = pv.PolyData(vertices, faces)
-    if compute_normals:
-        mesh.compute_normals(
-            cell_normals=False,
-            point_normals=True,
-            split_vertices=False,
-            consistent_normals=False,
-            non_manifold_traversal=False,
-            inplace=True,
-        )
-    elif surf.get("nn") is not None:
-        nn = np.array(surf["nn"], float)
-        _normalize_vectors(nn)
-        mesh.point_data["Normals"] = nn
-        mesh.GetPointData().SetActiveNormals("Normals")
+    mesh.compute_normals(
+        cell_normals=False,
+        point_normals=True,
+        split_vertices=False,
+        consistent_normals=False,
+        non_manifold_traversal=False,
+        inplace=True,
+    )
     return mesh
 
 
