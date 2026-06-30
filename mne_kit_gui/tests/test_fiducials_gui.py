@@ -67,6 +67,19 @@ def test_mri_model(subjects_dir_tmp):
     assert_array_equal(model.nasion, [[0, 1, 0]])
 
 
+class _FakePicker:
+    def __init__(self, frame):
+        self._frame = frame
+
+    def GetActor(self):
+        return self._frame.mri_obj.surf
+
+
+class _OtherPicker:
+    def GetActor(self):
+        return None
+
+
 @testing.requires_testing_data
 def test_fiducials_frame(qtbot):
     """Test FiducialsFrame GUI, including the 3D scene and picking."""
@@ -91,27 +104,20 @@ def test_fiducials_frame(qtbot):
 
     pt = frame.mri_obj.points[100]
 
-    class _FakePicker:
-        def GetActor(self):
-            return frame.mri_obj.surf
-
-    class _OtherPicker:
-        def GetActor(self):
-            return None
-
     # picking while fiducials are locked should be ignored
     before = frame.model.lpa.copy()
     frame.model.lock_fiducials = True
-    frame.panel._on_pick(pt, _FakePicker())
+    fake_picker = _FakePicker(frame)
+    frame.panel._on_pick(pt, fake_picker)
     assert_array_equal(frame.model.lpa, before)
 
     # an empty pick (no intersection) should be ignored without raising
     frame.model.lock_fiducials = False
-    frame.panel._on_pick(None, _FakePicker())
+    frame.panel._on_pick(None, fake_picker)
     assert_array_equal(frame.model.lpa, before)
 
     # picking on the head surface should move the active fiducial
-    frame.panel._on_pick(pt, _FakePicker())
+    frame.panel._on_pick(pt, fake_picker)
     assert_array_equal(np.asarray(frame.model.lpa), [pt])
 
     # picking something other than the head surface should be ignored
@@ -124,5 +130,5 @@ def test_fiducials_frame(qtbot):
     frame.close()
     # Make macOS happy
     qtbot.wait(200)  # wait for the close to finish
-    del frame
+    del frame, fake_picker, pt
     gc.collect()
