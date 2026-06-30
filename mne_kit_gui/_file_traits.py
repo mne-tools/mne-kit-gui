@@ -28,8 +28,7 @@ from mne.io.constants import FIFF
 from mne.io import read_info, read_fiducials, read_raw
 from mne import create_info
 from mne.surface import read_surface, complete_surface_info
-from mne.coreg import (_is_mri_subject, _mri_subject_has_bem,
-                       create_default_subject)
+from mne.coreg import _is_mri_subject, _mri_subject_has_bem, create_default_subject
 from mne.utils import get_config, set_config
 from mne.viz._3d import _fiducial_coords
 from mne.channels import read_dig_fif
@@ -37,8 +36,10 @@ from mne.channels import read_dig_fif
 try:
     from mne.io._read_raw import _get_supported
 except ImportError:  # MNE < 1.6
+
     def _get_supported():
         from mne.io._read_raw import supported
+
         return supported
 
 
@@ -69,19 +70,22 @@ def get_fs_home(parent=None):
     If specified successfully, the resulting path is stored with
     mne.set_config().
     """
-    return _get_root_home('FREESURFER_HOME', 'freesurfer', _fs_home_problem,
-                          parent=parent)
+    return _get_root_home(
+        "FREESURFER_HOME", "freesurfer", _fs_home_problem, parent=parent
+    )
 
 
 def _get_root_home(cfg, name, check_fun, parent=None):
     root = get_config(cfg)
     problem = check_fun(root)
     while problem:
-        info = ("Please select the %s directory. This is the root "
-                "directory of the %s installation." % (cfg, name))
+        info = (
+            "Please select the %s directory. This is the root "
+            "directory of the %s installation." % (cfg, name)
+        )
         QMessageBox.information(
-            parent, "Select the %s Directory" % cfg,
-            '\n\n'.join((problem, info)))
+            parent, "Select the %s Directory" % cfg, "\n\n".join((problem, info))
+        )
         msg = "Please select the %s Directory" % cfg
         path = QFileDialog.getExistingDirectory(parent, msg)
         if path:
@@ -113,7 +117,7 @@ def set_fs_home():
     if fs_home is None:
         return False
     else:
-        os.environ['FREESURFER_HOME'] = fs_home
+        os.environ["FREESURFER_HOME"] = fs_home
         return True
 
 
@@ -127,9 +131,8 @@ def _fs_home_problem(fs_home):
     fs_home = Path(fs_home)
     if not fs_home.exists():
         return "FREESURFER_HOME (%s) does not exist." % fs_home
-    if not (fs_home / 'subjects' / 'fsaverage').exists():
-        return ("FREESURFER_HOME (%s) does not contain the fsaverage "
-                "subject." % fs_home)
+    if not (fs_home / "subjects" / "fsaverage").exists():
+        return "FREESURFER_HOME (%s) does not contain the fsaverage subject." % fs_home
 
 
 def _mne_root_problem(mne_root):
@@ -142,9 +145,11 @@ def _mne_root_problem(mne_root):
     mne_root = Path(mne_root)
     if not mne_root.exists():
         return "MNE_ROOT (%s) does not exist." % mne_root
-    if not (mne_root / 'share' / 'mne' / 'mne_analyze').exists():
-        return ("MNE_ROOT (%s) is missing files. If this is your MNE "
-                "installation, consider reinstalling." % mne_root)
+    if not (mne_root / "share" / "mne" / "mne_analyze").exists():
+        return (
+            "MNE_ROOT (%s) is missing files. If this is your MNE "
+            "installation, consider reinstalling." % mne_root
+        )
 
 
 class Surf:
@@ -182,28 +187,28 @@ class SurfaceSource(HasTraits):
         super().__init__(**kwargs)
         self.surf = Surf()
 
-    @observe('file')
+    @observe("file")
     def _file_changed(self, change):
         """Read the file."""
-        path = Path(change['new']) if change['new'] else None
+        path = Path(change["new"]) if change["new"] else None
         if path is not None and path.exists():
-            if path.suffix == '.fif':
-                bem = read_bem_surfaces(
-                    path, on_defects='warn', verbose=False
-                )[0]
+            if path.suffix == ".fif":
+                bem = read_bem_surfaces(path, on_defects="warn", verbose=False)[0]
             else:
                 try:
                     bem = read_surface(path, return_dict=True)[2]
-                    bem['rr'] *= 1e-3
+                    bem["rr"] *= 1e-3
                     complete_surface_info(bem, copy=False)
                 except Exception:
                     QMessageBox.critical(
-                        self.parent, "Error Loading Surface",
+                        self.parent,
+                        "Error Loading Surface",
                         "Error loading surface from %s (see "
-                        "Terminal for details)." % path)
-                    self.file = ''
+                        "Terminal for details)." % path,
+                    )
+                    self.file = ""
                     raise
-            self.surf = Surf(rr=bem['rr'], tris=bem['tris'], nn=bem['nn'])
+            self.surf = Surf(rr=bem["rr"], tris=bem["tris"], nn=bem["nn"])
         else:
             self.surf = Surf()
 
@@ -230,19 +235,21 @@ class FiducialsSource(HasTraits):
     mni_points = Any()  # ndarray (3, 3) or None, set externally
     parent = Any()  # QWidget | None, for parenting dialogs
 
-    @observe('file')
+    @observe("file")
     def _file_changed(self, change):
-        path = Path(change['new']) if change['new'] else None
-        self.fname = path.name if path else ''
+        path = Path(change["new"]) if change["new"] else None
+        self.fname = path.name if path else ""
         if path is not None and path.exists():
             try:
                 self.points = _fiducial_coords(*read_fiducials(path))
             except Exception as err:
                 QMessageBox.critical(
-                    self.parent, "Error Reading Fiducials",
+                    self.parent,
+                    "Error Reading Fiducials",
                     "Error reading fiducials from %s: %s (See terminal "
-                    "for more information)" % (self.fname, str(err)))
-                self.file = ''
+                    "for more information)" % (self.fname, str(err)),
+                )
+                self.file = ""
                 raise
         else:
             self.points = self.mni_points  # can be None
@@ -280,12 +287,12 @@ class DigSource(HasTraits):
 
     # head shape
     _hsp_points = Any()  # ndarray (n, 3)
-    points = Any()       # ndarray (n, 3), filtered by points_filter
+    points = Any()  # ndarray (n, 3), filtered by points_filter
 
     # fiducials
-    lpa = Any()     # ndarray (1, 3)
+    lpa = Any()  # ndarray (1, 3)
     nasion = Any()  # ndarray (1, 3)
-    rpa = Any()     # ndarray (1, 3)
+    rpa = Any()  # ndarray (1, 3)
 
     # EEG / HPI
     eeg_points = Any()  # ndarray (n, 3)
@@ -301,8 +308,8 @@ class DigSource(HasTraits):
         empty = np.empty((0, 3))
         zeros = np.zeros((1, 3))
         self._info = None
-        self.inst_fname = '-'
-        self.inst_dir = ''
+        self.inst_fname = "-"
+        self.inst_dir = ""
         self._hsp_points = empty
         self.points = empty
         self.lpa = zeros
@@ -312,9 +319,9 @@ class DigSource(HasTraits):
         self.hpi_points = np.zeros((0, 3))
         self.n_omitted = 0
 
-    @observe('file')
+    @observe("file")
     def _file_changed(self, change):
-        path = Path(change['new']) if change['new'] else None
+        path = Path(change["new"]) if change["new"] else None
         self.points_filter = None  # reset filter first
 
         if path is None:
@@ -330,7 +337,7 @@ class DigSource(HasTraits):
 
     def _read_info(self, path):
         info = None
-        if path.name.endswith(('.fif', '.fif.gz')):
+        if path.name.endswith((".fif", ".fif.gz")):
             try:
                 info = read_info(path, verbose=False)
             except Exception:
@@ -339,35 +346,41 @@ class DigSource(HasTraits):
                 except Exception:
                     pass
                 else:
-                    info = create_info(1, 1000., 'mag')
+                    info = create_info(1, 1000.0, "mag")
                     with info._unlock():
-                        info['dig'] = dig
+                        info["dig"] = dig
         else:
             info = read_raw(path).info
 
-        if info is None or info['dig'] is None:
+        if info is None or info["dig"] is None:
             QMessageBox.critical(
-                self.parent, "Error Reading Digitization File",
+                self.parent,
+                "Error Reading Digitization File",
                 "The selected file does not contain digitization "
-                "information. Please select a different file.")
-            self.file = ''
+                "information. Please select a different file.",
+            )
+            self.file = ""
             return None
 
-        point_kinds = {d['kind'] for d in info['dig']}
-        missing = [key for key in ('LPA', 'Nasion', 'RPA') if
-                   getattr(FIFF, f'FIFFV_POINT_{key.upper()}') not in
-                   point_kinds]
+        point_kinds = {d["kind"] for d in info["dig"]}
+        missing = [
+            key
+            for key in ("LPA", "Nasion", "RPA")
+            if getattr(FIFF, f"FIFFV_POINT_{key.upper()}") not in point_kinds
+        ]
         if missing:
-            pts = _fiducial_coords(info['dig'])
+            pts = _fiducial_coords(info["dig"])
             if len(pts) == 3:
-                _append_fiducials(info['dig'], *pts.T)
+                _append_fiducials(info["dig"], *pts.T)
             else:
                 QMessageBox.critical(
-                    self.parent, "Error Reading Digitization File",
+                    self.parent,
+                    "Error Reading Digitization File",
                     "The selected digitization file does not contain "
                     f"all cardinal points (missing: {', '.join(missing)}). "
-                    "Please select a different file.")
-                self.file = ''
+                    "Please select a different file.",
+                )
+                self.file = ""
                 return None
         return info
 
@@ -376,7 +389,7 @@ class DigSource(HasTraits):
         empty = np.empty((0, 3))
         zeros = np.zeros((1, 3))
 
-        if not info or not info['dig']:
+        if not info or not info["dig"]:
             self._hsp_points = empty
             self.lpa = zeros
             self.nasion = zeros
@@ -384,23 +397,28 @@ class DigSource(HasTraits):
             self.eeg_points = empty
             self.hpi_points = np.zeros((0, 3))
         else:
-            dig = info['dig']
-            hsp = np.array([d['r'] for d in dig
-                            if d['kind'] == FIFF.FIFFV_POINT_EXTRA])
+            dig = info["dig"]
+            hsp = np.array([d["r"] for d in dig if d["kind"] == FIFF.FIFFV_POINT_EXTRA])
             self._hsp_points = hsp if len(hsp) else empty
 
             self.lpa = self._cardinal_point(FIFF.FIFFV_POINT_LPA)
             self.nasion = self._cardinal_point(FIFF.FIFFV_POINT_NASION)
             self.rpa = self._cardinal_point(FIFF.FIFFV_POINT_RPA)
 
-            eeg = [d['r'] for d in dig
-                   if d['kind'] == FIFF.FIFFV_POINT_EEG and
-                   d['coord_frame'] == FIFF.FIFFV_COORD_HEAD]
+            eeg = [
+                d["r"]
+                for d in dig
+                if d["kind"] == FIFF.FIFFV_POINT_EEG
+                and d["coord_frame"] == FIFF.FIFFV_COORD_HEAD
+            ]
             self.eeg_points = np.array(eeg) if eeg else empty
 
-            hpi = [d['r'] for d in dig
-                   if d['kind'] == FIFF.FIFFV_POINT_HPI and
-                   d['coord_frame'] == FIFF.FIFFV_COORD_HEAD]
+            hpi = [
+                d["r"]
+                for d in dig
+                if d["kind"] == FIFF.FIFFV_POINT_HPI
+                and d["coord_frame"] == FIFF.FIFFV_COORD_HEAD
+            ]
             self.hpi_points = np.array(hpi) if hpi else np.zeros((0, 3))
 
         self._update_points()
@@ -415,33 +433,44 @@ class DigSource(HasTraits):
             self.points = hsp[filt]
             self.n_omitted = int(np.sum(filt == False))  # noqa: E712
 
-    @observe('points_filter')
+    @observe("points_filter")
     def _points_filter_changed(self, change):
         self._update_points()
 
     def _cardinal_point(self, ident):
-        if not self._info or not self._info['dig']:
+        if not self._info or not self._info["dig"]:
             return np.zeros((1, 3))
-        for d in self._info['dig']:
-            if (d['kind'] == FIFF.FIFFV_POINT_CARDINAL and
-                    d['ident'] == ident):
-                return d['r'][None, :]
+        for d in self._info["dig"]:
+            if d["kind"] == FIFF.FIFFV_POINT_CARDINAL and d["ident"] == ident:
+                return d["r"][None, :]
         return np.zeros((1, 3))
 
 
 def _append_fiducials(dig, lpa, nasion, rpa):
-    dig.append({'coord_frame': FIFF.FIFFV_COORD_HEAD,
-                'ident': FIFF.FIFFV_POINT_LPA,
-                'kind': FIFF.FIFFV_POINT_CARDINAL,
-                'r': lpa})
-    dig.append({'coord_frame': FIFF.FIFFV_COORD_HEAD,
-                'ident': FIFF.FIFFV_POINT_NASION,
-                'kind': FIFF.FIFFV_POINT_CARDINAL,
-                'r': nasion})
-    dig.append({'coord_frame': FIFF.FIFFV_COORD_HEAD,
-                'ident': FIFF.FIFFV_POINT_RPA,
-                'kind': FIFF.FIFFV_POINT_CARDINAL,
-                'r': rpa})
+    dig.append(
+        {
+            "coord_frame": FIFF.FIFFV_COORD_HEAD,
+            "ident": FIFF.FIFFV_POINT_LPA,
+            "kind": FIFF.FIFFV_POINT_CARDINAL,
+            "r": lpa,
+        }
+    )
+    dig.append(
+        {
+            "coord_frame": FIFF.FIFFV_COORD_HEAD,
+            "ident": FIFF.FIFFV_POINT_NASION,
+            "kind": FIFF.FIFFV_POINT_CARDINAL,
+            "r": nasion,
+        }
+    )
+    dig.append(
+        {
+            "coord_frame": FIFF.FIFFV_COORD_HEAD,
+            "ident": FIFF.FIFFV_POINT_RPA,
+            "kind": FIFF.FIFFV_POINT_CARDINAL,
+            "r": rpa,
+        }
+    )
 
 
 class MRISubjectSource(HasTraits):
@@ -464,7 +493,7 @@ class MRISubjectSource(HasTraits):
     mri_dir = Unicode()
     parent = Any()  # QWidget | None, for parenting dialogs
 
-    @observe('subjects_dir')
+    @observe("subjects_dir")
     def _subjects_dir_changed(self, change):
         self._update_subjects()
         # Re-emit subject so downstream observers on 'subject' fire even if
@@ -474,26 +503,22 @@ class MRISubjectSource(HasTraits):
     def _update_subjects(self):
         sdir = Path(self.subjects_dir) if self.subjects_dir else None
         if sdir is not None and sdir.is_dir():
-            subjects = [s.name for s in sdir.iterdir()
-                       if _is_mri_subject(s.name, sdir)]
+            subjects = [s.name for s in sdir.iterdir() if _is_mri_subject(s.name, sdir)]
             if not subjects:
-                subjects = ['']
+                subjects = [""]
         else:
-            subjects = ['']
+            subjects = [""]
         self.subjects = sorted(subjects)
         self.can_create_fsaverage = (
-            sdir is not None and sdir.exists() and
-            'fsaverage' not in self.subjects
+            sdir is not None and sdir.exists() and "fsaverage" not in self.subjects
         )
 
-    @observe('subjects_dir', 'subject')
+    @observe("subjects_dir", "subject")
     def _update_bem_and_mri_dir(self, change):
         sdir = self.subjects_dir
         sub = self.subject
-        self.mri_dir = str(Path(sdir) / sub) if sdir and sub else ''
-        self.subject_has_bem = (
-            bool(sub) and _mri_subject_has_bem(sub, sdir)
-        )
+        self.mri_dir = str(Path(sdir) / sub) if sdir and sub else ""
+        self.subject_has_bem = bool(sub) and _mri_subject_has_bem(sub, sdir)
 
     def refresh(self):
         """Refresh the subject list based on subjects_dir contents."""
@@ -502,19 +527,21 @@ class MRISubjectSource(HasTraits):
     def create_fsaverage(self):  # noqa: D102
         if not self.subjects_dir:
             raise RuntimeError(
-                "No subjects directory is selected. Please specify "
-                "subjects_dir first.")
+                "No subjects directory is selected. Please specify subjects_dir first."
+            )
 
         fs_home = get_fs_home(parent=self.parent)
         if fs_home is None:
             raise RuntimeError(
                 "FreeSurfer contains files that are needed for copying the "
-                "fsaverage brain. Please install FreeSurfer and try again.")
+                "fsaverage brain. Please install FreeSurfer and try again."
+            )
 
-        create_default_subject(fs_home=fs_home, update=True,
-                               subjects_dir=self.subjects_dir)
+        create_default_subject(
+            fs_home=fs_home, update=True, subjects_dir=self.subjects_dir
+        )
         self.refresh()
-        self.subject = 'fsaverage'
+        self.subject = "fsaverage"
 
 
 class SubjectSelectorPanel:
@@ -538,15 +565,17 @@ class SubjectSelectorPanel:
     @subjects_dir.setter
     def subjects_dir(self, value):
         self.model.subjects_dir = value
-        if value and self.model.subjects == ['']:
+        if value and self.model.subjects == [""]:
             QMessageBox.information(
-                self.parent, "No Subjects Found",
+                self.parent,
+                "No Subjects Found",
                 "The directory selected as subjects-directory "
                 "(%s) does not contain any valid MRI subjects. If "
                 "this is not expected make sure all MRI subjects have "
                 "head surface model files which "
                 "can be created by running:\n\n    $ mne "
-                "make_scalp_surfaces" % value)
+                "make_scalp_surfaces" % value,
+            )
 
     @property
     def subject(self):
@@ -566,8 +595,7 @@ class SubjectSelectorPanel:
 
     def create_fsaverage(self):
         """Copy fsaverage to SUBJECTS_DIR with a progress dialog."""
-        prog = QProgressDialog("Copying fsaverage files ...",
-                               None, 0, 0, self.parent)
+        prog = QProgressDialog("Copying fsaverage files ...", None, 0, 0, self.parent)
         prog.setWindowTitle("Creating FsAverage ...")
         prog.setWindowModality(Qt.WindowModal)
         prog.setMinimumDuration(0)
@@ -575,8 +603,7 @@ class SubjectSelectorPanel:
         try:
             self.model.create_fsaverage()
         except Exception as err:
-            QMessageBox.critical(
-                self.parent, "Error Creating FsAverage", str(err))
+            QMessageBox.critical(self.parent, "Error Creating FsAverage", str(err))
             raise
         finally:
             prog.close()

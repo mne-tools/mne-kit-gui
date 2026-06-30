@@ -43,6 +43,7 @@ def fiducials(subject=None, fid_file=None, subjects_dir=None, *, block=True):
     The functionality in this GUI is also part of :func:`coregistration`.
     """
     from ._fiducials_gui import FiducialsFrame
+
     app = _init_mne_qtapp()
     frame = FiducialsFrame(subject=subject, subjects_dir=subjects_dir)
     if fid_file is not None:
@@ -73,6 +74,7 @@ def kit2fiff(*, block=True):
         The GUI frame.
     """
     from ._kit2fiff_gui import Kit2FiffFrame
+
     app = _init_mne_qtapp()
     frame = Kit2FiffFrame()
     frame.show()

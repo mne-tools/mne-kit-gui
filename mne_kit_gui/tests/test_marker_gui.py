@@ -11,15 +11,15 @@ from mne.io.kit import read_mrk
 
 from mne_kit_gui._marker_gui import CombineMarkersModel, CombineMarkersPanel
 
-kit_data_dir = Path(__file__).parent / 'data'
-mrk_pre_path = kit_data_dir / 'test_mrk_pre.sqd'
-mrk_post_path = kit_data_dir / 'test_mrk_post.sqd'
-mrk_avg_path = kit_data_dir / 'test_mrk.sqd'
+kit_data_dir = Path(__file__).parent / "data"
+mrk_pre_path = kit_data_dir / "test_mrk_pre.sqd"
+mrk_post_path = kit_data_dir / "test_mrk_post.sqd"
+mrk_avg_path = kit_data_dir / "test_mrk.sqd"
 
 
 def test_combine_markers_model(tmp_path):
     """Test CombineMarkersModel Traits Model."""
-    tgt_fname = tmp_path / 'test.txt'
+    tgt_fname = tmp_path / "test.txt"
 
     model = CombineMarkersModel()
 
@@ -40,7 +40,7 @@ def test_combine_markers_model(tmp_path):
     points_interpolate_mrk1_mrk2 = model.mrk3.points
 
     # change interpolation method
-    model.mrk3.method = 'Average'
+    model.mrk3.method = "Average"
     mrk_avg = read_mrk(mrk_avg_path)
     assert_array_equal(model.mrk3.points, mrk_avg)
 

@@ -13,18 +13,18 @@ import mne_kit_gui
 
 from mne_kit_gui._kit2fiff_gui import Kit2FiffModel
 
-kit_data_dir = Path(__file__).parent / 'data'
-mrk_pre_path = kit_data_dir / 'test_mrk_pre.sqd'
-mrk_post_path = kit_data_dir / 'test_mrk_post.sqd'
-sqd_path = kit_data_dir / 'test.sqd'
-hsp_path = kit_data_dir / 'test_hsp.txt'
-fid_path = kit_data_dir / 'test_elp.txt'
-fif_path = kit_data_dir / 'test_bin_raw.fif'
+kit_data_dir = Path(__file__).parent / "data"
+mrk_pre_path = kit_data_dir / "test_mrk_pre.sqd"
+mrk_post_path = kit_data_dir / "test_mrk_post.sqd"
+sqd_path = kit_data_dir / "test.sqd"
+hsp_path = kit_data_dir / "test_hsp.txt"
+fid_path = kit_data_dir / "test_elp.txt"
+fif_path = kit_data_dir / "test_bin_raw.fif"
 
 
 def test_kit2fiff_model(tmp_path):
     """Test Kit2Fiff model."""
-    tgt_fname = tmp_path / 'test-raw.fif'
+    tgt_fname = tmp_path / "test-raw.fif"
 
     model = Kit2FiffModel()
     assert not model.can_save
@@ -40,9 +40,9 @@ def test_kit2fiff_model(tmp_path):
     assert model.can_save
 
     # events
-    model.stim_slope = '+'
+    model.stim_slope = "+"
     assert model.get_event_info() == {1: 2}
-    model.stim_slope = '-'
+    model.stim_slope = "-"
     assert model.get_event_info() == {254: 2, 255: 2}
 
     # stim channels
@@ -63,10 +63,10 @@ def test_kit2fiff_model(tmp_path):
 
     # Compare exported raw with the original binary conversion
     raw_bin = read_raw_fif(fif_path)
-    trans_bin = raw.info['dev_head_t']['trans']
+    trans_bin = raw.info["dev_head_t"]["trans"]
     want_keys = list(raw_bin.info.keys())
     assert sorted(want_keys) == sorted(raw.info.keys())
-    trans_transform = raw_bin.info['dev_head_t']['trans']
+    trans_transform = raw_bin.info["dev_head_t"]["trans"]
     assert_allclose(trans_transform, trans_bin, 0.1)
 
     # Averaging markers
@@ -83,25 +83,25 @@ def test_kit2fiff_model(tmp_path):
     assert not np.all(model.dev_head_trans == np.eye(4))
 
     # test setting stim channels
-    model.stim_slope = '+'
-    events_bin = mne.find_events(raw_bin, stim_channel='STI 014')
+    model.stim_slope = "+"
+    events_bin = mne.find_events(raw_bin, stim_channel="STI 014")
 
-    model.stim_coding = '<'
+    model.stim_coding = "<"
     raw = model.get_raw()
-    events = mne.find_events(raw, stim_channel='STI 014')
+    events = mne.find_events(raw, stim_channel="STI 014")
     assert_array_equal(events, events_bin)
 
     events_rev = events_bin.copy()
     events_rev[:, 2] = 1
-    model.stim_coding = '>'
+    model.stim_coding = ">"
     raw = model.get_raw()
-    events = mne.find_events(raw, stim_channel='STI 014')
+    events = mne.find_events(raw, stim_channel="STI 014")
     assert_array_equal(events, events_rev)
 
-    model.stim_coding = 'channel'
+    model.stim_coding = "channel"
     model.stim_chs = "160:161"
     raw = model.get_raw()
-    events = mne.find_events(raw, stim_channel='STI 014')
+    events = mne.find_events(raw, stim_channel="STI 014")
     assert_array_equal(events, events_bin + [0, 0, 32])
 
     # test reset
@@ -112,7 +112,7 @@ def test_kit2fiff_model(tmp_path):
 
 def test_kit2fiff_gui(qtbot, tmp_path, monkeypatch):
     """Test Kit2Fiff GUI."""
-    monkeypatch.setenv('_MNE_FAKE_HOME_DIR', str(tmp_path))
+    monkeypatch.setenv("_MNE_FAKE_HOME_DIR", str(tmp_path))
 
     # WA_DeleteOnClose means this frame's underlying C++ object is gone
     # once we close it below, so don't also register it with qtbot for
@@ -120,24 +120,26 @@ def test_kit2fiff_gui(qtbot, tmp_path, monkeypatch):
     frame = mne_kit_gui.kit2fiff(block=False)
 
     assert not frame.model.can_save
-    assert frame.model.stim_threshold == 1.
-    frame.model.stim_threshold = 10.
-    frame.model.stim_chs = 'save this!'
+    assert frame.model.stim_threshold == 1.0
+    frame.model.stim_threshold = 10.0
+    frame.model.stim_chs = "save this!"
     frame.save_config(str(tmp_path))
     frame.close()
 
     # test setting persistence
     frame = mne_kit_gui.kit2fiff(block=False)
     qtbot.addWidget(frame)
-    assert frame.model.stim_threshold == 10.
-    assert frame.model.stim_chs == 'save this!'
+    assert frame.model.stim_threshold == 10.0
+    assert frame.model.stim_chs == "save this!"
 
     # set and reset marker file
-    points = [[-0.084612, 0.021582, -0.056144],
-              [0.080425, 0.021995, -0.061171],
-              [-0.000787, 0.105530, 0.014168],
-              [-0.047943, 0.091835, 0.010240],
-              [0.042976, 0.094380, 0.010807]]
+    points = [
+        [-0.084612, 0.021582, -0.056144],
+        [0.080425, 0.021995, -0.061171],
+        [-0.000787, 0.105530, 0.014168],
+        [-0.047943, 0.091835, 0.010240],
+        [0.042976, 0.094380, 0.010807],
+    ]
     assert_array_equal(frame.marker_panel.mrk1_obj.points, 0)
     assert_array_equal(frame.marker_panel.mrk3_obj.points, 0)
     frame.model.markers.mrk1.file = str(mrk_pre_path)

@@ -15,15 +15,14 @@ from mne_kit_gui._fiducials_gui import FiducialsFrame
 
 def test_mri_model(subjects_dir_tmp):
     """Test MRIHeadWithFiducialsModel Traits Model."""
-    tgt_fname = subjects_dir_tmp / 'test-fiducials.fif'
+    tgt_fname = subjects_dir_tmp / "test-fiducials.fif"
 
     # Remove the two files that will make the fiducials okay via MNI estimation
-    (subjects_dir_tmp / 'sample' / 'bem' / 'sample-fiducials.fif').unlink()
-    (subjects_dir_tmp / 'sample' / 'mri' / 'transforms' /
-     'talairach.xfm').unlink()
+    (subjects_dir_tmp / "sample" / "bem" / "sample-fiducials.fif").unlink()
+    (subjects_dir_tmp / "sample" / "mri" / "transforms" / "talairach.xfm").unlink()
 
     model = MRIHeadWithFiducialsModel(subjects_dir=str(subjects_dir_tmp))
-    model.subject = 'sample'
+    model.subject = "sample"
     assert model.default_fid_fname[-20:] == "sample-fiducials.fif"
     assert not model.can_reset
     assert not model.can_save
@@ -35,13 +34,13 @@ def test_mri_model(subjects_dir_tmp):
 
     bem_fname = Path(model.bem_high_res.file).name
     assert not model.can_reset
-    assert bem_fname == 'sample-head-dense.fif'
+    assert bem_fname == "sample-head-dense.fif"
 
     model.save(tgt_fname)
     assert model.fid_file == str(tgt_fname)
 
     # resetting the file should not affect the model's fiducials
-    model.fid_file = ''
+    model.fid_file = ""
     assert_array_equal(model.lpa, [[-1, 0, 0]])
     assert_array_equal(model.nasion, [[0, 1, 0]])
     assert_array_equal(model.rpa, [[1, 0, 0]])
@@ -70,12 +69,12 @@ def test_mri_model(subjects_dir_tmp):
 @testing.requires_testing_data
 def test_fiducials_frame(qtbot):
     """Test FiducialsFrame GUI, including the 3D scene and picking."""
-    subjects_dir = testing.data_path(download=False) / 'subjects'
+    subjects_dir = testing.data_path(download=False) / "subjects"
 
     # WA_DeleteOnClose means this frame's underlying C++ object is gone
     # once we close it below, so don't also register it with qtbot for
     # auto-close at teardown -- that would double-close it.
-    frame = FiducialsFrame(subject='sample', subjects_dir=str(subjects_dir))
+    frame = FiducialsFrame(subject="sample", subjects_dir=str(subjects_dir))
 
     # the head surface and fiducial point glyphs should be plotted
     assert frame.mri_obj.surf is not None
@@ -83,10 +82,10 @@ def test_fiducials_frame(qtbot):
     assert frame.lpa_obj.glyph is not None
 
     # head views should not raise and should move the camera
-    for view in ('front', 'left', 'right', 'top'):
+    for view in ("front", "left", "right", "top"):
         frame.headview.on_set_view(view)
 
-    for interaction in ('trackball', 'terrain'):
+    for interaction in ("trackball", "terrain"):
         frame.headview.interaction = interaction
 
     pt = frame.mri_obj.points[100]
@@ -116,7 +115,7 @@ def test_fiducials_frame(qtbot):
 
     # picking something other than the head surface should be ignored
     before = frame.model.nasion.copy()
-    frame.panel.set = 'Nasion'
+    frame.panel.set = "Nasion"
     frame.panel._on_pick(pt, _OtherPicker())
     assert_array_equal(frame.model.nasion, before)
 

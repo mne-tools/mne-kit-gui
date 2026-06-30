@@ -26,20 +26,25 @@ def _create_mesh_surf(surf, compute_normals=True):
         The mesh.
     """
     import pyvista as pv
-    vertices = np.asarray(surf['rr'], float)
-    tris = np.asarray(surf['tris'], int)
+
+    vertices = np.asarray(surf["rr"], float)
+    tris = np.asarray(surf["tris"], int)
     faces = np.c_[np.full(len(tris), 3), tris]
     mesh = pv.PolyData(vertices, faces)
     if compute_normals:
         mesh.compute_normals(
-            cell_normals=False, point_normals=True, split_vertices=False,
-            consistent_normals=False, non_manifold_traversal=False,
-            inplace=True)
-    elif surf.get('nn') is not None:
-        nn = np.array(surf['nn'], float)
+            cell_normals=False,
+            point_normals=True,
+            split_vertices=False,
+            consistent_normals=False,
+            non_manifold_traversal=False,
+            inplace=True,
+        )
+    elif surf.get("nn") is not None:
+        nn = np.array(surf["nn"], float)
         _normalize_vectors(nn)
-        mesh.point_data['Normals'] = nn
-        mesh.GetPointData().SetActiveNormals('Normals')
+        mesh.point_data["Normals"] = nn
+        mesh.GetPointData().SetActiveNormals("Normals")
     return mesh
 
 
@@ -68,28 +73,32 @@ def _glyph_geom(mode, resolution=8, solid_transform=None, height=None):
         to :meth:`pyvista.PolyDataFilters.glyph`.
     """
     from vtkmodules.vtkFiltersSources import (
-        vtkSphereSource, vtkCylinderSource, vtkPlatonicSolidSource)
-    if mode == 'sphere':
+        vtkSphereSource,
+        vtkCylinderSource,
+        vtkPlatonicSolidSource,
+    )
+
+    if mode == "sphere":
         src = vtkSphereSource()
         src.SetThetaResolution(resolution)
         src.SetPhiResolution(resolution)
-    elif mode == 'cylinder':
+    elif mode == "cylinder":
         src = vtkCylinderSource()
         src.SetResolution(resolution)
         if height is not None:
             src.SetHeight(height)
-            src.SetCenter(0., -height / 2., 0.)
-    elif mode == 'oct':
+            src.SetCenter(0.0, -height / 2.0, 0.0)
+    elif mode == "oct":
         src = vtkPlatonicSolidSource()
         src.SetSolidTypeToOctahedron()
     else:
-        raise ValueError('mode must be sphere, cylinder, or oct, got %r'
-                         % (mode,))
+        raise ValueError("mode must be sphere, cylinder, or oct, got %r" % (mode,))
     src.Update()
     geom = src.GetOutput()
     if solid_transform is not None:
         from vtkmodules.vtkCommonTransforms import vtkTransform
         from vtkmodules.vtkFiltersGeneral import vtkTransformFilter
+
         assert solid_transform.shape == (4, 4)
         tr = vtkTransform()
         tr.SetMatrix(solid_transform.astype(np.float64).ravel())
