@@ -5,11 +5,20 @@
 from pathlib import Path
 
 import numpy as np
+import pytest
 from numpy.testing import assert_array_equal
+
+from qtpy.QtWidgets import QDialog
 
 from mne.io.kit import read_mrk
 
-from mne_kit_gui._marker_gui import CombineMarkersModel, CombineMarkersPanel
+from mne_kit_gui._marker_gui import (
+    CombineMarkersModel,
+    CombineMarkersPanel,
+    MarkerPointSource,
+    ReorderDialog,
+    _write_dig_points,
+)
 
 kit_data_dir = Path(__file__).parent / "data"
 mrk_pre_path = kit_data_dir / "test_mrk_pre.sqd"
@@ -17,7 +26,7 @@ mrk_post_path = kit_data_dir / "test_mrk_post.sqd"
 mrk_avg_path = kit_data_dir / "test_mrk.sqd"
 
 
-def test_combine_markers_model(tmp_path):
+def test_combine_markers_model(tmp_path, mocker):
     """Test CombineMarkersModel Traits Model."""
     tgt_fname = tmp_path / "test.txt"
 
@@ -64,6 +73,99 @@ def test_combine_markers_model(tmp_path):
     model.mrk1.file = str(mrk_pre_path)
     model.mrk2.file = str(mrk_post_path)
     assert_array_equal(model.mrk3.points, points_interpolate_mrk1_mrk2)
+
+    # swap left/right marker points
+    swapped = model.mrk1.points[[1, 0, 2, 4, 3]]
+    model.mrk1.switch_left_right()
+    assert_array_equal(model.mrk1.points, swapped)
+    model.mrk1.switch_left_right()
+
+    # transform with only src2 fully used (src1 partial)
+    model.mrk3.method = "Transform"
+    model.mrk1.use = [0, 1, 2, 3]
+    model.mrk2.use = [0, 1, 2, 3, 4]
+    assert np.any(model.mrk3.points)
+    # ... and the both-partial branch (>=3 shared, each has a unique point)
+    model.mrk2.use = [1, 2, 3, 4]
+    assert np.any(model.mrk3.points)
+
+    # averaging with each source contributing a unique point
+    model.mrk3.method = "Average"
+    assert np.any(model.mrk3.points)
+    model.mrk3.method = "Transform"
+    model.mrk1.use = [0, 1, 2, 3, 4]
+    model.mrk2.use = [0, 1, 2, 3, 4]
+
+    # save_as: a missing extension is appended and an existing file prompts
+    save_path = tmp_path / "saved_markers"
+    mock_fd = mocker.patch("mne_kit_gui._marker_gui.QFileDialog")
+    mock_qmb = mocker.patch("mne_kit_gui._marker_gui.QMessageBox")
+    mock_fd.getSaveFileName.return_value = (str(save_path), "")
+    model.mrk1.save_as()
+    assert (tmp_path / "saved_markers.txt").exists()  # ".txt" appended
+    # second save: file exists -> overwrite prompt, answered "Yes"
+    mock_qmb.question.return_value = mock_qmb.Yes
+    model.mrk1.save_as()
+    mock_qmb.question.assert_called_once()
+    # an empty selection is a no-op
+    mock_fd.getSaveFileName.return_value = ("", "")
+    model.mrk1.save_as()
+    mocker.stopall()
+
+    # error paths report via QMessageBox.critical and fall back to zeros
+    mock_msgbox = mocker.patch("mne_kit_gui._marker_gui.QMessageBox")
+    # transform needs >=3 shared points
+    model.mrk1.use = [0, 1]
+    model.mrk2.use = [2, 3]
+    assert_array_equal(model.mrk3.points, np.zeros((5, 3)))
+    # average needs every point covered by at least one source
+    model.mrk3.method = "Average"
+    assert_array_equal(model.mrk3.points, np.zeros((5, 3)))
+    assert mock_msgbox.critical.call_count >= 2
+
+    # an unreadable marker file resets points to zero and warns
+    bad = tmp_path / "bad.sqd"
+    bad.write_bytes(b"not a marker file")
+    model.mrk1.file = str(bad)
+    assert_array_equal(model.mrk1.points, np.zeros((5, 3)))
+
+
+def test_write_dig_points_errors(tmp_path):
+    """Test _write_dig_points input validation."""
+    with pytest.raises(ValueError, match="Points must be of shape"):
+        _write_dig_points(tmp_path / "out.txt", np.zeros((5, 4)))
+    with pytest.raises(ValueError, match="Unrecognized extension"):
+        _write_dig_points(tmp_path / "out.dat", np.zeros((5, 3)))
+
+
+def test_reorder_dialog(qtbot, mocker):
+    """Test ReorderDialog parsing and MarkerPointSource.reorder/edit."""
+    dlg = ReorderDialog()
+    qtbot.addWidget(dlg)
+    # default order is the identity
+    assert dlg.index == [0, 1, 2, 3, 4]
+    # non-integer and duplicate inputs are rejected
+    dlg._edit.setText("a b c d e")
+    assert dlg.index is None
+    dlg._edit.setText("0 1 2 3 3")
+    assert dlg.index is None
+    # invalid input shows a warning when the dialog is accepted
+    mock_msgbox = mocker.patch("mne_kit_gui._marker_gui.QMessageBox")
+    dlg._try_accept()
+    mock_msgbox.warning.assert_called_once()
+
+    # reorder() applies an accepted dialog's permutation to the points
+    src = MarkerPointSource()
+    src.points = np.arange(15).reshape(5, 3).astype(float)
+    fake_dlg = mocker.Mock()
+    fake_dlg.exec_.return_value = QDialog.Accepted
+    fake_dlg.index = [4, 3, 2, 1, 0]
+    mocker.patch("mne_kit_gui._marker_gui.ReorderDialog", return_value=fake_dlg)
+    src.reorder()
+    assert_array_equal(src.points[0], [12, 13, 14])
+
+    # edit() is currently a no-op placeholder
+    src.edit()
 
 
 def test_combine_markers_panel():

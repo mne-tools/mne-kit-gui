@@ -94,8 +94,9 @@ class MarkerPoints(HasTraits):
         pts = change["new"]
         self.can_save = bool(pts is not None and np.any(pts))
 
-    def save_as(self, parent=None):
+    def save_as(self):
         """Prompt user for a save path and save the marker points."""
+        parent = self.parent
         path, _ = QFileDialog.getSaveFileName(
             parent, "Save Markers", self.name or "", mrk_out_wildcard
         )
@@ -173,14 +174,14 @@ class MarkerPointSource(MarkerPoints):  # noqa: D401
         self.points = np.zeros((5, 3))
         self.use = list(range(5))
 
-    def edit(self, parent=None):
+    def edit(self):
         """Open an edit dialog for manual coordinate entry."""
         # Phase 1: placeholder — will be a proper QDialog in the Qt layer
         pass
 
-    def reorder(self, parent=None):
+    def reorder(self):
         """Prompt for a new point order and apply it."""
-        dlg = ReorderDialog(parent)
+        dlg = ReorderDialog(self.parent)
         if dlg.exec_() == QDialog.Accepted and dlg.index is not None:
             self.points = self.points[dlg.index]
 

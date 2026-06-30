@@ -359,8 +359,9 @@ class FiducialsPanel(HasTraits):
         if self.headview is not None:
             self.headview.on_set_view(_VIEW_DICT[new])
 
-    def save_as(self, parent=None):
+    def save_as(self):
         """Prompt for a path and save fiducials."""
+        parent = self.model.parent
         default = self.model.fid_file or self.model.default_fid_fname
         path, _ = QFileDialog.getSaveFileName(
             parent, "Save Fiducials", default, "Fiducials (*.fif)"
@@ -542,7 +543,7 @@ class FiducialsFrame(QMainWindow):
         self._save_btn = QPushButton("Save")
         self._save_btn.clicked.connect(lambda: self.model.save())
         self._save_as_btn = QPushButton("Save As...")
-        self._save_as_btn.clicked.connect(lambda: self.panel.save_as(self))
+        self._save_as_btn.clicked.connect(lambda: self.panel.save_as())
         self._reset_btn = QPushButton("↻ Reset")
         self._reset_btn.clicked.connect(lambda: self.model.reset_fiducials())
         bg_layout.addWidget(self._save_btn)

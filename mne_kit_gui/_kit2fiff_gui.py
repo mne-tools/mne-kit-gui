@@ -408,14 +408,13 @@ class Kit2FiffModel(HasTraits):
         self.fid_file = ""
         self.use_mrk = list(range(5))
 
-    def get_misc_data(self, parent=None):
+    def get_misc_data(self):
         """Load misc channel data from the SQD file, with progress dialog."""
         if self.misc_data is not None:
             return self.misc_data
         if self.raw is None:
             return None
-        if parent is None:
-            parent = self.parent
+        parent = self.parent
 
         from qtpy.QtWidgets import QProgressDialog
 
@@ -441,9 +440,9 @@ class Kit2FiffModel(HasTraits):
         self.misc_data = data
         return data
 
-    def get_event_info(self, parent=None):
+    def get_event_info(self):
         """Count events with current stim channel settings."""
-        data = self.get_misc_data(parent)
+        data = self.get_misc_data()
         if data is None:
             return None
         idx = [self.misc_chs.index(ch) for ch in self.stim_chs_array]
@@ -609,11 +608,10 @@ class Kit2FiffPanel(HasTraits):
         if self.elp_obj is not None and self.model is not None:
             self.elp_obj.points = apply_trans(self.model.head_dev_trans, self.model.elp)
 
-    def save_as(self, parent=None):
+    def save_as(self):
         """Prompt for a save path and queue the raw file for saving."""
         model = self.model
-        if parent is None:
-            parent = model.parent
+        parent = model.parent
         try:
             raw = model.get_raw()
         except Exception as err:
@@ -646,12 +644,11 @@ class Kit2FiffPanel(HasTraits):
         self.queue.put((raw, path))
         self.queue_len += 1
 
-    def test_stim(self, parent=None):
+    def test_stim(self):
         """Show a count of events with current stim settings."""
-        if parent is None:
-            parent = self.model.parent
+        parent = self.model.parent
         try:
-            events = self.model.get_event_info(parent)
+            events = self.model.get_event_info()
         except Exception as err:
             QMessageBox.critical(
                 parent,
@@ -929,7 +926,7 @@ class Kit2FiffFrame(QMainWindow):
 
         btn_row = QHBoxLayout()
         self._test_stim_btn = QPushButton("Find Events")
-        self._test_stim_btn.clicked.connect(lambda: self.kit2fiff_panel.test_stim(self))
+        self._test_stim_btn.clicked.connect(lambda: self.kit2fiff_panel.test_stim())
         self._plot_raw_btn = QPushButton("Plot Raw")
         self._plot_raw_btn.clicked.connect(
             lambda: self.model.raw.plot() if self.model.raw else None
@@ -942,7 +939,7 @@ class Kit2FiffFrame(QMainWindow):
         # Save/clear row
         save_row = QHBoxLayout()
         self._save_btn = QPushButton("Save FIFF...")
-        self._save_btn.clicked.connect(lambda: self.kit2fiff_panel.save_as(self))
+        self._save_btn.clicked.connect(lambda: self.kit2fiff_panel.save_as())
         self._clear_btn = QPushButton("Clear All")
         self._clear_btn.clicked.connect(lambda: self.model.clear_all())
         save_row.addWidget(self._save_btn)

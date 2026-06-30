@@ -5,12 +5,13 @@
 from pathlib import Path
 
 import numpy as np
+import pytest
 from numpy.testing import assert_array_equal
 
 from mne.datasets import testing
 
+import mne_kit_gui
 from mne_kit_gui._fiducials_gui import MRIHeadWithFiducialsModel
-from mne_kit_gui._fiducials_gui import FiducialsFrame
 
 
 def test_mri_model(subjects_dir_tmp):
@@ -80,14 +81,17 @@ class _OtherPicker:
 
 
 @testing.requires_testing_data
-def test_fiducials_frame(qtbot, check_gc):
+def test_fiducials_frame(qtbot, check_gc, mocker, tmp_path):
     """Test FiducialsFrame GUI, including the 3D scene and picking."""
     subjects_dir = testing.data_path(download=False) / "subjects"
 
     # WA_DeleteOnClose means this frame's underlying C++ object is gone
     # once we close it below, so don't also register it with qtbot for
-    # auto-close at teardown -- that would double-close it.
-    frame = FiducialsFrame(subject="sample", subjects_dir=str(subjects_dir))
+    # auto-close at teardown -- that would double-close it. Build it through
+    # the public ``fiducials`` convenience function to exercise that wrapper.
+    frame = mne_kit_gui.fiducials(
+        subject="sample", subjects_dir=str(subjects_dir), block=False
+    )
 
     # the head surface and fiducial point glyphs should be plotted
     assert frame.mri_obj.surf is not None
@@ -97,9 +101,35 @@ def test_fiducials_frame(qtbot, check_gc):
     # head views should not raise and should move the camera
     for view in ("front", "left", "right", "top"):
         frame.headview.on_set_view(view)
+    # invalid views/systems raise
+    with pytest.raises(ValueError, match="Invalid view"):
+        frame.headview.on_set_view("nope")
 
     for interaction in ("trackball", "terrain"):
         frame.headview.interaction = interaction
+
+    # changing the parallel scale re-renders without raising
+    frame.headview.scale = 0.2
+
+    # toggling point-object styling exercises the various trait observers
+    lpa_obj = frame.lpa_obj
+    lpa_obj.point_scale = lpa_obj.point_scale * 2
+    lpa_obj.color = (0.0, 1.0, 0.0)
+    lpa_obj.opacity = 0.5
+    lpa_obj.resolution = 6
+    lpa_obj.label = True
+    lpa_obj.visible = False  # also hides the labels via _on_hide
+    lpa_obj.visible = True
+
+    # ... and the same for the head surface object
+    mri_obj = frame.mri_obj
+    mri_obj.color = (0.5, 0.5, 0.5)
+    mri_obj.opacity = 0.8
+    mri_obj.visible = False
+    mri_obj.visible = True
+    mri_obj.points = mri_obj.points  # live point update (same topology)
+    mri_obj.rep = "Wireframe"
+    mri_obj.plot()
 
     pt = frame.mri_obj.points[100]
 
@@ -125,5 +155,33 @@ def test_fiducials_frame(qtbot, check_gc):
     frame.panel._on_pick(pt, _OtherPicker())
     assert_array_equal(frame.model.nasion, before)
 
-    frame.model.can_save = False  # avoid the unsaved-changes dialog on close
+    # a change to the BEM source surface propagates to the rendered object
+    orig_surf = frame.model.bem_low_res.surf
+    frame.model.bem_low_res.surf = {
+        "rr": orig_surf["rr"],
+        "tris": np.empty((0, 3), int),  # no faces -> clear the object
+    }
+    assert frame.mri_obj.surf is None
+    frame.model.bem_low_res.surf = orig_surf  # restore and re-plot
+    assert frame.mri_obj.surf is not None
+
+    # save_as: exercise the file dialog, the ".fif" suffix, and overwrite prompt
+    mock_fd = mocker.patch("mne_kit_gui._fiducials_gui.QFileDialog")
+    mock_msgbox = mocker.patch("mne_kit_gui._fiducials_gui.QMessageBox")
+    save_path = tmp_path / "out_fids"
+    mock_fd.getSaveFileName.return_value = (str(save_path), "")
+    frame.panel.save_as()
+    assert (tmp_path / "out_fids.fif").exists()  # suffix appended
+    # file now exists -> overwrite prompt; answer "No" so nothing is rewritten
+    mock_msgbox.question.return_value = mock_msgbox.No
+    frame.panel.save_as()
+    mock_msgbox.question.assert_called_once()
+    mock_fd.getSaveFileName.return_value = ("", "")
+    frame.panel.save_as()  # empty selection is a no-op
+
+    # closing with unsaved changes prompts; answer "Discard" so it still closes
+    mock_msgbox.question.reset_mock()
+    mock_msgbox.question.return_value = mock_msgbox.Discard
+    assert frame.model.can_save
     frame.close()
+    mock_msgbox.question.assert_called_once()

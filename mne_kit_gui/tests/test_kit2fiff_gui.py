@@ -5,13 +5,20 @@
 from pathlib import Path
 
 import numpy as np
+import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
 import mne
 from mne.io import read_raw_fif
 import mne_kit_gui
 
-from mne_kit_gui._kit2fiff_gui import Kit2FiffModel
+from mne.io.kit.constants import KIT
+
+from mne_kit_gui._kit2fiff_gui import (
+    Kit2FiffModel,
+    Kit2FiffPanel,
+    _load_model_config,
+)
 
 kit_data_dir = Path(__file__).parent / "data"
 mrk_pre_path = kit_data_dir / "test_mrk_pre.sqd"
@@ -22,7 +29,7 @@ fid_path = kit_data_dir / "test_elp.txt"
 fif_path = kit_data_dir / "test_bin_raw.fif"
 
 
-def test_kit2fiff_model(tmp_path):
+def test_kit2fiff_model(tmp_path, mocker):
     """Test Kit2Fiff model."""
     tgt_fname = tmp_path / "test-raw.fif"
 
@@ -104,10 +111,202 @@ def test_kit2fiff_model(tmp_path):
     events = mne.find_events(raw, stim_channel="STI 014")
     assert_array_equal(events, events_bin + [0, 0, 32])
 
+    # fewer than three markers cannot estimate a transform
+    mock_msgbox = mocker.patch("mne_kit_gui._kit2fiff_gui.QMessageBox")
+    model.show_gui = True
+    model.use_mrk = [0, 1]
+    assert_array_equal(model.dev_head_trans, np.eye(4))
+    assert_array_equal(model.head_dev_trans, np.eye(4))
+    mock_msgbox.critical.assert_called_once()
+    model.show_gui = False
+    model.use_mrk = [0, 1, 2, 3, 4]
+
     # test reset
     model.clear_all()
     assert model.use_mrk == [0, 1, 2, 3, 4]
     assert model.sqd_file == ""
+
+
+def test_save_worker(tmp_path, monkeypatch, mocker):
+    """Test the background save-queue worker without spawning a real thread."""
+    captured = {}
+
+    class FakeThread:
+        def __init__(self, target, daemon=None):
+            captured["target"] = target
+
+        def start(self):
+            pass  # don't actually run the worker in a background thread
+
+    monkeypatch.setattr("mne_kit_gui._kit2fiff_gui.Thread", FakeThread)
+    panel = Kit2FiffPanel()
+    worker = captured["target"]
+
+    # A one-shot queue yields a single item, then breaks the worker's loop.
+    class _Stop(Exception):
+        pass
+
+    class OneShotQueue:
+        def __init__(self, item):
+            self._item = item
+
+        def get(self):
+            if self._item is None:
+                raise _Stop
+            item, self._item = self._item, None
+            return item
+
+        def task_done(self):
+            pass
+
+    fname = tmp_path / "out-raw.fif"
+
+    # successful save
+    raw = mocker.Mock()
+    panel.queue = OneShotQueue((raw, fname))
+    with pytest.raises(_Stop):
+        worker()
+    raw.save.assert_called_once_with(fname, overwrite=True)
+    assert panel.queue_feedback == "Saved: out-raw.fif"
+    assert panel.queue_current == ""
+
+    # failed save is caught and reported via the feedback string
+    raw_bad = mocker.Mock()
+    raw_bad.save.side_effect = RuntimeError("boom")
+    panel.queue = OneShotQueue((raw_bad, fname))
+    with pytest.raises(_Stop):
+        worker()
+    assert panel.queue_feedback == "Error saving: out-raw.fif"
+
+
+def test_save_as(tmp_path, monkeypatch, mocker):
+    """Test Kit2FiffPanel.save_as queueing and dialogs (no real thread)."""
+    monkeypatch.setattr(
+        "mne_kit_gui._kit2fiff_gui.Thread", lambda *a, **k: mocker.Mock()
+    )
+    mock_fd = mocker.patch("mne_kit_gui._kit2fiff_gui.QFileDialog")
+    mock_qmb = mocker.patch("mne_kit_gui._kit2fiff_gui.QMessageBox")
+
+    panel = Kit2FiffPanel()
+    panel.model = mocker.Mock()
+    panel.model.sqd_file = str(tmp_path / "test.sqd")
+
+    # an error creating the raw object is reported and re-raised
+    panel.model.get_raw.side_effect = RuntimeError("nope")
+    with pytest.raises(RuntimeError, match="nope"):
+        panel.save_as()
+    mock_qmb.critical.assert_called_once()
+
+    # a successful raw is queued and the ".fif" suffix is appended
+    raw = mocker.Mock()
+    panel.model.get_raw.side_effect = None
+    panel.model.get_raw.return_value = raw
+    no_suffix = tmp_path / "out"  # missing extension, does not yet exist
+    mock_fd.getSaveFileName.return_value = (str(no_suffix), "")
+    panel.save_as()
+    assert panel.queue_len == 1
+    queued_raw, queued_path = panel.queue.get_nowait()
+    assert queued_raw is raw
+    assert queued_path == tmp_path / "out.fif"
+
+    # an existing target prompts to overwrite; answering "No" cancels the queue
+    existing = tmp_path / "exists.fif"
+    existing.write_text("x")
+    mock_fd.getSaveFileName.return_value = (str(existing), "")
+    mock_qmb.question.return_value = mock_qmb.No
+    panel.save_as()
+    assert panel.queue_len == 1  # unchanged
+    mock_qmb.question.assert_called_once()
+
+    # an empty selection is a no-op
+    mock_fd.getSaveFileName.return_value = ("", "")
+    panel.save_as()
+    assert panel.queue_len == 1
+
+
+def test_panel_test_stim(monkeypatch, mocker):
+    """Test Kit2FiffPanel.test_stim event reporting (no real thread)."""
+    monkeypatch.setattr(
+        "mne_kit_gui._kit2fiff_gui.Thread", lambda *a, **k: mocker.Mock()
+    )
+    mock_qmb = mocker.patch("mne_kit_gui._kit2fiff_gui.QMessageBox")
+
+    panel = Kit2FiffPanel()
+    panel.model = mocker.Mock()
+
+    # reading events can fail -> critical dialog and re-raise
+    panel.model.get_event_info.side_effect = RuntimeError("bad")
+    with pytest.raises(RuntimeError, match="bad"):
+        panel.test_stim()
+    mock_qmb.critical.assert_called_once()
+
+    # no events found
+    panel.model.get_event_info.side_effect = None
+    panel.model.get_event_info.return_value = {}
+    panel.test_stim()
+
+    # events found are listed
+    panel.model.get_event_info.return_value = {1: 2, 5: 3}
+    panel.test_stim()
+    assert mock_qmb.information.call_count == 2
+
+
+@pytest.mark.filterwarnings("ignore:.*:RuntimeWarning")
+def test_kit2fiff_model_read_errors(tmp_path, mocker):
+    """Test that malformed dig/SQD files raise and report via QMessageBox."""
+    mock_msgbox = mocker.patch("mne_kit_gui._kit2fiff_gui.QMessageBox")
+    model = Kit2FiffModel(show_gui=True)
+
+    # a fiducials file with fewer than the required 8 points
+    too_few = tmp_path / "few.txt"
+    np.savetxt(too_few, np.arange(9, dtype=float).reshape(3, 3))
+    with pytest.raises(ValueError, match="need 8"):
+        model.fid_file = str(too_few)
+    assert model.fid_file == ""  # reset to empty on error
+
+    # an unparsable head-shape file
+    bad_hsp = tmp_path / "bad.txt"
+    bad_hsp.write_text("not\tnumbers\there\n")
+    with pytest.raises(Exception):
+        model.hsp_file = str(bad_hsp)
+    assert model.hsp_file == ""
+
+    # a head-shape file with too many points triggers automatic downsampling
+    big_hsp = tmp_path / "big.txt"
+    pts = np.random.RandomState(0).randn(KIT.DIG_POINTS + 1, 3)
+    np.savetxt(big_hsp, pts)
+    model.hsp_file = str(big_hsp)
+    assert 0 < len(model.hsp_raw) <= KIT.DIG_POINTS
+    mock_msgbox.information.assert_called_once()
+
+    # a corrupt SQD file
+    bad_sqd = tmp_path / "bad.sqd"
+    bad_sqd.write_bytes(b"not a valid sqd file")
+    with pytest.raises(Exception):
+        model.sqd_file = str(bad_sqd)
+    assert model.sqd_file == ""
+
+    # each failing read reported an error dialog
+    assert mock_msgbox.critical.call_count == 3
+
+
+def test_load_model_config_invalid(tmp_path, monkeypatch):
+    """Test that _load_model_config ignores invalid saved config values."""
+    monkeypatch.setenv("_MNE_FAKE_HOME_DIR", str(tmp_path))
+    # write invalid values to the config file (set_env=False avoids polluting
+    # os.environ for other tests)
+    for key, val in (
+        ("MNE_KIT2FIFF_STIM_CHANNEL_THRESHOLD", "not-a-float"),
+        ("MNE_KIT2FIFF_STIM_CHANNEL_SLOPE", "?"),
+        ("MNE_KIT2FIFF_STIM_CHANNEL_CODING", "?"),
+    ):
+        mne.set_config(key, val, home_dir=str(tmp_path), set_env=False)
+    with pytest.warns(RuntimeWarning, match="Ignoring invalid"):
+        model = _load_model_config()
+    # invalid values fall back to the defaults
+    assert model.stim_threshold == 1.0
+    assert model.stim_slope == "-"
+    assert model.stim_coding == ">"
 
 
 def test_kit2fiff_gui(qtbot, check_gc, tmp_path, monkeypatch):
