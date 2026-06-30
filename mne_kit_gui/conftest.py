@@ -47,15 +47,3 @@ def subjects_dir_tmp(tmp_path):
     for key in ('sample', 'fsaverage'):
         shutil.copytree(subjects_dir / key, tmp_path / key)
     return tmp_path
-
-
-@pytest.fixture(autouse=True)
-def _ensure_qapp(qapp):
-    """Ensure a QApplication exists for every test.
-
-    Some model classes (e.g. Kit2FiffModel) construct Qt dialogs directly
-    (QProgressDialog, QMessageBox) outside of a full GUI frame. Without a
-    running QApplication, constructing any QWidget aborts the interpreter
-    instead of raising a catchable exception, so make sure one always
-    exists -- pytest-qt's ``qapp`` fixture creates (and caches) it.
-    """
