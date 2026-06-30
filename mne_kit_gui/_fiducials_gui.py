@@ -667,3 +667,4 @@ class FiducialsFrame(QMainWindow):
                 event.ignore()
                 return
         event.accept()
+        self.scene.close()
