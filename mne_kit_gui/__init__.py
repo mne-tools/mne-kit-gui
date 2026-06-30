@@ -4,10 +4,15 @@
 #
 # License: BSD-3-Clause
 
+from importlib.metadata import version
+
 from mne.viz.backends._utils import _init_mne_qtapp, _qt_app_exec
 
-
-__version__ = '1.3.0'
+try:
+    __version__ = version("mne-kit-gui")
+except Exception:
+    __version__ = "0.0.0"
+del version
 
 
 def fiducials(subject=None, fid_file=None, subjects_dir=None, *, block=True):

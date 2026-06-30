@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=64"]
+requires = ["setuptools>=64", "setuptools_scm>=6.2"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -10,7 +10,7 @@ license = {text = "BSD-3-Clause"}
 maintainers = [
   {name = "Christian Brodbeck", email = "christianbrodbeck@me.com"}
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dynamic = ["version"]
 dependencies = [
   "numpy",
@@ -19,7 +19,7 @@ dependencies = [
   "pyvistaqt",
   "traitlets",
   "qtpy",
-  "mne>=0.23"
+  "mne>=1.0"
 ]
 classifiers = [
   "Intended Audience :: Science/Research",
@@ -55,6 +55,24 @@ test = [
 Homepage = "https://github.com/mne-tools/mne-kit-gui"
 Download = "https://github.com/mne-tools/mne-kit-gui"
 
+[tool.check-manifest]
+# .git_archival.txt: setuptools_scm's automatic sdist file-finder relies on
+# a real `.git` directory, which check-manifest's clean-room re-build (a
+# plain file copy, no `.git`) doesn't have, so this one file is invisible to
+# that second pass even though it's present in normal builds (verified via
+# `python -m build`).
+ignore = [
+  ".coveragerc",
+  ".git_archival.txt",
+  ".pre-commit-config.yaml",
+  ".yamllint.yml",
+  "Makefile",
+  "codecov.yml",
+  "environment.yml",
+  "ignore_words.txt",
+  "mne_kit_gui/tests/data/**"
+]
+
 [tool.pytest.ini_options]
 addopts = """\
     --durations=20 --doctest-modules -ra --cov-report= --tb=short \
@@ -66,12 +84,12 @@ junit_family = "xunit2"
 
 [tool.setuptools]
 zip-safe = false
-
-[tool.setuptools.dynamic]
-version = {attr = "mne_kit_gui.__version__"}
+include-package-data = false
 
 [tool.setuptools.package-data]
 mne_kit_gui = ["help/*.json"]
 
 [tool.setuptools.packages.find]
 include = ["mne_kit_gui*"]
+
+[tool.setuptools_scm]
