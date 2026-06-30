@@ -77,11 +77,10 @@ def _glyph_geom(mode, resolution=8, solid_transform=None, height=None):
         if height is not None:
             src.SetHeight(height)
             src.SetCenter(0.0, -height / 2.0, 0.0)
-    elif mode == "oct":
+    else:
+        assert mode == "oct"
         src = vtkPlatonicSolidSource()
         src.SetSolidTypeToOctahedron()
-    else:
-        raise ValueError("mode must be sphere, cylinder, or oct, got %r" % (mode,))
     src.Update()
     geom = src.GetOutput()
     if solid_transform is not None:

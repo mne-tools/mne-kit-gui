@@ -42,6 +42,7 @@ classifiers = [
 test = [
   "pytest",
   "pytest-cov",
+  "pytest-mock",
   "pytest-qt",
   "mffpy",
   "defusedxml",
