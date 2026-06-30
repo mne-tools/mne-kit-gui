@@ -13,6 +13,7 @@ from qtpy.QtWidgets import (
     QCheckBox,
     QDialog,
     QDoubleSpinBox,
+    QLabel,
     QLineEdit,
     QPushButton,
 )
@@ -359,8 +360,9 @@ def test_kit2fiff_gui(qtbot, check_gc, tmp_path, monkeypatch, mocker):
 
     # --- exercise the marker-panel controls (dialogs mocked) ---
     mrk1 = frame.model.markers.mrk1
-    # the file path field mirrors the loaded file
+    # the file path field mirrors the loaded file, with the basename shown too
     assert frame.findChild(QLineEdit, "mrk1_file").text() == str(mrk_pre_path)
+    assert frame.findChild(QLabel, "mrk1_name").text() == mrk_pre_path.name
     # Clear/Save As are enabled once data is present
     clear_btn = frame.findChild(QPushButton, "mrk1_clear")
     assert clear_btn.isEnabled()
@@ -406,14 +408,23 @@ def test_kit2fiff_gui(qtbot, check_gc, tmp_path, monkeypatch, mocker):
     assert mrk1_obj.label
     lbl.setChecked(False)
 
-    # the Color button routes the picked color into the object
+    # the Color button shows the int RGB triplet (like the old TraitsUI swatch)
+    color_btn = frame.findChild(QPushButton, "mrk1_color")
+    assert color_btn.text() == "(155,55,55)"  # mrk1's default color
+    # ... and routes a newly-picked color into the object, updating the label
     mock_color = mocker.patch("mne_kit_gui._kit2fiff_gui.QColorDialog")
-    mock_color.getColor.return_value = QColor.fromRgbF(0.1, 0.2, 0.3)
-    frame.findChild(QPushButton, "mrk1_color").click()
+    picked = QColor.fromRgbF(0.1, 0.2, 0.3)
+    mock_color.getColor.return_value = picked
+    color_btn.click()
     assert_allclose(mrk1_obj.color, (0.1, 0.2, 0.3), atol=1e-3)
+    assert color_btn.text() == "(%d,%d,%d)" % (
+        picked.red(),
+        picked.green(),
+        picked.blue(),
+    )
     # a cancelled (invalid) color is ignored
     mock_color.getColor.return_value = QColor()
-    frame.findChild(QPushButton, "mrk1_color").click()
+    color_btn.click()
     assert_allclose(mrk1_obj.color, (0.1, 0.2, 0.3), atol=1e-3)
     mocker.stopall()
 

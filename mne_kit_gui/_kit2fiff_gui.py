@@ -812,7 +812,9 @@ class Kit2FiffFrame(QMainWindow):
         return g
 
     def _build_marker_file_row(self, name, mrk, wildcard):
-        # the (read-only) line edit mirrors the model's file path
+        # the (read-only) line edit mirrors the model's file path, with the
+        # basename shown separately so it stays visible for long paths
+        outer = QVBoxLayout()
         row = QHBoxLayout()
         edit = QLineEdit()
         edit.setObjectName("%s_file" % name)
@@ -826,7 +828,13 @@ class Kit2FiffFrame(QMainWindow):
         mrk.observe(lambda ch: edit.setText(ch["new"]), names=["file"])
         row.addWidget(edit)
         row.addWidget(browse)
-        return row
+        outer.addLayout(row)
+
+        basename = QLabel(mrk.name)
+        basename.setObjectName("%s_name" % name)
+        mrk.observe(lambda ch: basename.setText(ch["new"]), names=["name"])
+        outer.addWidget(basename)
+        return outer
 
     def _build_marker_use_row(self, name, mrk):
         # checkboxes selecting which points (0-4) feed the interpolation
@@ -890,7 +898,7 @@ class Kit2FiffFrame(QMainWindow):
         obj.observe(lambda ch: show.setChecked(ch["new"]), names=["visible"])
         row.addWidget(show)
 
-        color = QPushButton("Color")
+        color = QPushButton()
         color.setObjectName("%s_color" % name)
         color.clicked.connect(lambda: self._pick_color(obj))
         self._set_color_swatch(color, obj.color)
@@ -921,9 +929,12 @@ class Kit2FiffFrame(QMainWindow):
 
     @staticmethod
     def _set_color_swatch(button, color):
-        button.setStyleSheet(
-            "background-color: %s" % QColor.fromRgbF(*color[:3]).name()
-        )
+        qcolor = QColor.fromRgbF(*color[:3])
+        button.setText("(%d,%d,%d)" % (qcolor.red(), qcolor.green(), qcolor.blue()))
+        # pick a readable text color based on the swatch's luminance
+        luminance = 0.299 * color[0] + 0.587 * color[1] + 0.114 * color[2]
+        fg = "black" if luminance > 0.5 else "white"
+        button.setStyleSheet("background-color: %s; color: %s" % (qcolor.name(), fg))
 
     def _pick_color(self, obj):
         qcolor = QColorDialog.getColor(QColor.fromRgbF(*obj.color[:3]), self)
