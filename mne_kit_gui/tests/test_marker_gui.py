@@ -9,6 +9,8 @@ from numpy.testing import assert_array_equal
 
 from mne.io.kit import read_mrk
 
+from mne_kit_gui._marker_gui import CombineMarkersModel, CombineMarkersPanel
+
 kit_data_dir = Path(__file__).parent / 'data'
 mrk_pre_path = kit_data_dir / 'test_mrk_pre.sqd'
 mrk_post_path = kit_data_dir / 'test_mrk_post.sqd'
@@ -17,7 +19,6 @@ mrk_avg_path = kit_data_dir / 'test_mrk.sqd'
 
 def test_combine_markers_model(tmp_path):
     """Test CombineMarkersModel Traits Model."""
-    from mne_kit_gui._marker_gui import CombineMarkersModel
     tgt_fname = tmp_path / 'test.txt'
 
     model = CombineMarkersModel()
@@ -67,5 +68,4 @@ def test_combine_markers_model(tmp_path):
 
 def test_combine_markers_panel():
     """Test CombineMarkersPanel."""
-    from mne_kit_gui._marker_gui import CombineMarkersPanel
     CombineMarkersPanel()

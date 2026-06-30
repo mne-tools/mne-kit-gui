@@ -12,6 +12,11 @@ import mne
 from mne.datasets import testing
 from mne.channels import read_dig_fif
 
+from mne_kit_gui._file_traits import (
+    SurfaceSource, FiducialsSource, DigSource, MRISubjectSource
+)
+
+
 data_path = testing.data_path(download=False)
 subjects_dir = data_path / 'subjects'
 bem_path = subjects_dir / 'sample' / 'bem' / 'sample-1280-bem.fif'
@@ -23,8 +28,6 @@ fid_path = (Path(mne.__file__).parent / 'data' / 'fsaverage' /
 @testing.requires_testing_data
 def test_bem_source():
     """Test SurfaceSource."""
-    from mne_kit_gui._file_traits import SurfaceSource
-
     bem = SurfaceSource()
     assert bem.surf.rr.shape == (0, 3)
     assert bem.surf.tris.shape == (0, 3)
@@ -37,8 +40,6 @@ def test_bem_source():
 @testing.requires_testing_data
 def test_fiducials_source():
     """Test FiducialsSource."""
-    from mne_kit_gui._file_traits import FiducialsSource
-
     fid = FiducialsSource()
     fid.file = str(fid_path)
 
@@ -55,8 +56,6 @@ def test_fiducials_source():
 @testing.requires_testing_data
 def test_digitization_source(tmp_path):
     """Test DigSource."""
-    from mne_kit_gui._file_traits import DigSource
-
     inst = DigSource()
     assert inst.inst_fname == '-'
 
@@ -100,8 +99,6 @@ def test_digitization_source(tmp_path):
 @testing.requires_testing_data
 def test_subject_source():
     """Test SubjectSelector."""
-    from mne_kit_gui._file_traits import MRISubjectSource
-
     mri = MRISubjectSource()
     mri.subjects_dir = str(subjects_dir)
     assert 'sample' in mri.subjects
@@ -111,8 +108,6 @@ def test_subject_source():
 @testing.requires_testing_data
 def test_subject_source_with_fsaverage(tmp_path, monkeypatch):
     """Test SubjectSelector."""
-    from mne_kit_gui._file_traits import MRISubjectSource
-
     mri = MRISubjectSource()
     assert not mri.can_create_fsaverage
     pytest.raises(RuntimeError, mri.create_fsaverage)

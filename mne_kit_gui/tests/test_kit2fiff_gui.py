@@ -11,6 +11,8 @@ import mne
 from mne.io import read_raw_fif
 import mne_kit_gui
 
+from mne_kit_gui._kit2fiff_gui import Kit2FiffModel
+
 kit_data_dir = Path(__file__).parent / 'data'
 mrk_pre_path = kit_data_dir / 'test_mrk_pre.sqd'
 mrk_post_path = kit_data_dir / 'test_mrk_post.sqd'
@@ -22,7 +24,6 @@ fif_path = kit_data_dir / 'test_bin_raw.fif'
 
 def test_kit2fiff_model(tmp_path):
     """Test Kit2Fiff model."""
-    from mne_kit_gui._kit2fiff_gui import Kit2FiffModel
     tgt_fname = tmp_path / 'test-raw.fif'
 
     model = Kit2FiffModel()

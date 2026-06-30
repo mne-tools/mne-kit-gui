@@ -9,10 +9,12 @@ from numpy.testing import assert_array_equal
 
 from mne.datasets import testing
 
+from mne_kit_gui._fiducials_gui import MRIHeadWithFiducialsModel
+from mne_kit_gui._fiducials_gui import FiducialsFrame
+
 
 def test_mri_model(subjects_dir_tmp):
     """Test MRIHeadWithFiducialsModel Traits Model."""
-    from mne_kit_gui._fiducials_gui import MRIHeadWithFiducialsModel
     tgt_fname = subjects_dir_tmp / 'test-fiducials.fif'
 
     # Remove the two files that will make the fiducials okay via MNI estimation
@@ -68,8 +70,6 @@ def test_mri_model(subjects_dir_tmp):
 @testing.requires_testing_data
 def test_fiducials_frame(qtbot):
     """Test FiducialsFrame GUI, including the 3D scene and picking."""
-    from mne_kit_gui._fiducials_gui import FiducialsFrame
-
     subjects_dir = testing.data_path(download=False) / 'subjects'
 
     # WA_DeleteOnClose means this frame's underlying C++ object is gone

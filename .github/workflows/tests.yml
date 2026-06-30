@@ -28,13 +28,13 @@ jobs:
             python: '3.14'
             kind: 'dev'
           - os: ubuntu-latest
-            python: '3.10'
-            kind: 'stable'
-          - os: macos-latest
             python: '3.11'
             kind: 'stable'
           - os: windows-latest
             python: '3.12'
+            kind: 'stable'
+          - os: macos-latest
+            python: '3.13'
             kind: 'stable'
     steps:
       - uses: actions/checkout@v6
@@ -52,7 +52,7 @@ jobs:
         if: matrix.kind == 'dev'
       - run: mne sys_info -p
       - run: python -c "import mne; mne.datasets.testing.data_path(verbose=True)"
-      - run: python -c "import mne; mne.viz.Brain('fsaverage', subjects_dir=mne.datasets.testing.data_path(verbose=True) / 'subjects')"
+      - run: python -c "import mne; mne.viz.Brain('fsaverage', surface='white', subjects_dir=mne.datasets.testing.data_path(verbose=True) / 'subjects')"
       - run: pytest --tb=short --cov=mne_kit_gui --cov-report=xml --cov-report=html -vvv mne_kit_gui
       - uses: codecov/codecov-action@v6
         with:
