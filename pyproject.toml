@@ -19,7 +19,7 @@ dependencies = [
   "pyvistaqt",
   "traitlets",
   "qtpy",
-  "mne>=1.0"
+  "mne>=1.6" # _get_supported
 ]
 classifiers = [
   "Intended Audience :: Science/Research",

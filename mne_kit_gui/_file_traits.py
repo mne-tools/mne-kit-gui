@@ -26,22 +26,13 @@ from qtpy.QtCore import Qt
 from mne.bem import read_bem_surfaces
 from mne.io.constants import FIFF
 from mne.io import read_info, read_fiducials, read_raw
+from mne.io._read_raw import _get_supported
 from mne import create_info
 from mne.surface import read_surface, complete_surface_info
 from mne.coreg import _is_mri_subject, _mri_subject_has_bem, create_default_subject
 from mne.utils import get_config, set_config
 from mne.viz._3d import _fiducial_coords
 from mne.channels import read_dig_fif
-
-try:
-    from mne.io._read_raw import _get_supported
-except ImportError:  # MNE < 1.6
-
-    def _get_supported():
-        from mne.io._read_raw import supported
-
-        return supported
-
 
 fid_wildcard = "*.fif"
 trans_wildcard = "*.fif"
