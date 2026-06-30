@@ -98,11 +98,11 @@ class MarkerPoints(HasTraits):
             path = path.with_suffix(out_ext)
 
         if path.exists():
-            ans = QMessageBox.question(
+            reply = QMessageBox.question(
                 parent, "Overwrite File?",
                 "The file %r already exists. Should it be replaced?"
                 % str(path))
-            if ans != QMessageBox.Yes:
+            if reply != QMessageBox.Yes:
                 return
         self.save(path)
 
@@ -259,19 +259,23 @@ class MarkerPointDest(MarkerPoints):  # noqa: D401
             return src1.points
 
         if self.method == 'Average':
-            if len(np.union1d(src1.use, src2.use)) < 5:
-                QMessageBox.critical(
-                    self.parent, "Marker Average Error",
-                    "Need at least one source for each point.")
-                return np.zeros((5, 3))
-            pts = (src1.points + src2.points) / 2.
-            for i in np.setdiff1d(src1.use, src2.use):
-                pts[i] = src1.points[i]
-            for i in np.setdiff1d(src2.use, src1.use):
-                pts[i] = src2.points[i]
-            return pts
+            return self._compute_points_average(src1, src2)
+        return self._compute_points_transform(src1, src2)
 
-        # Transform method
+    def _compute_points_average(self, src1, src2):
+        if len(np.union1d(src1.use, src2.use)) < 5:
+            QMessageBox.critical(
+                self.parent, "Marker Average Error",
+                "Need at least one source for each point.")
+            return np.zeros((5, 3))
+        pts = (src1.points + src2.points) / 2.
+        for i in np.setdiff1d(src1.use, src2.use):
+            pts[i] = src1.points[i]
+        for i in np.setdiff1d(src2.use, src1.use):
+            pts[i] = src2.points[i]
+        return pts
+
+    def _compute_points_transform(self, src1, src2):
         idx = np.intersect1d(np.array(src1.use),
                              np.array(src2.use), assume_unique=True)
         if len(idx) < 3:

@@ -64,7 +64,7 @@ def test_kit2fiff_model(tmp_path):
     raw_bin = read_raw_fif(fif_path)
     trans_bin = raw.info['dev_head_t']['trans']
     want_keys = list(raw_bin.info.keys())
-    assert sorted(want_keys) == sorted(list(raw.info.keys()))
+    assert sorted(want_keys) == sorted(raw.info.keys())
     trans_transform = raw_bin.info['dev_head_t']['trans']
     assert_allclose(trans_transform, trans_bin, 0.1)
 

@@ -11,6 +11,23 @@ on:  # yamllint disable-line rule:truthy
       - '*'
 
 jobs:
+  style:
+    name: Style
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -e {0}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - run: python -m pip install --upgrade check-manifest twine build pip
+      - run: check_manifest
+      - run: python -m build --sdist --wheel --outdir dist
+      - run: twine check --strict dist/*
   pytest:
     name: '${{ matrix.os }} / ${{ matrix.kind }} / ${{ matrix.python }}'
     continue-on-error: true
@@ -25,7 +42,7 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            python: '3.13'
+            python: '3.14'
             kind: 'dev'
           - os: ubuntu-latest
             python: '3.10'
@@ -41,10 +58,13 @@ jobs:
         with:
           fetch-depth: 0
       - uses: pyvista/setup-headless-display-action@main
+        with:
+          qt: true
+          pyvista: false
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
-      - run: python -m pip install --progress-bar off -e .[test] pyside6 nibabel defusedxml --only-binary=":all:"
+      - run: python -m pip install --progress-bar off -e .[test] pyside6 --only-binary=":all:"
       - run: python -m pip install --upgrade "mne @ https://github.com/mne-tools/mne-python/archive/refs/heads/main.zip"
         if: matrix.kind == 'dev'
       - run: mne sys_info -p

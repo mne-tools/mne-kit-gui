@@ -127,7 +127,7 @@ class HeadViewController(HasTraits):
         if scene is None:
             return
         interaction = change['new']
-        kwargs = dict(mouse_wheel_zooms=True) if interaction == 'terrain' \
+        kwargs = {'mouse_wheel_zooms': True} if interaction == 'terrain' \
             else {}
         getattr(scene, 'enable_%s_style' % interaction)(**kwargs)
 
@@ -137,18 +137,20 @@ class HeadViewController(HasTraits):
             return
 
         system = self.system
-        kwargs = dict(ALS=dict(front=(0, 90, -90),
-                               left=(90, 90, 180),
-                               right=(-90, 90, 0),
-                               top=(0, 0, -90)),
-                      RAS=dict(front=(90., 90., 180),
-                               left=(180, 90, 90),
-                               right=(0., 90, 270),
-                               top=(90, 0, 180)),
-                      ARI=dict(front=(0, 90, 90),
-                               left=(-90, 90, 180),
-                               right=(90, 90, 0),
-                               top=(0, 180, 90)))
+        kwargs = {
+            'ALS': {'front': (0, 90, -90),
+                   'left': (90, 90, 180),
+                   'right': (-90, 90, 0),
+                   'top': (0, 0, -90)},
+            'RAS': {'front': (90., 90., 180),
+                   'left': (180, 90, 90),
+                   'right': (0., 90, 270),
+                   'top': (90, 0, 180)},
+            'ARI': {'front': (0, 90, 90),
+                   'left': (-90, 90, 180),
+                   'right': (90, 90, 0),
+                   'top': (0, 180, 90)},
+        }
         if system not in kwargs:
             raise ValueError("Invalid system: %r" % system)
         if view not in kwargs[system]:
@@ -327,7 +329,7 @@ class PointObject(Object):
         mesh = cloud.glyph(orient=orient, scale=False,
                            factor=self.point_scale, geom=geom)
 
-        kwargs = dict(opacity=self.opacity, culling='back', pickable=False)
+        kwargs = {'opacity': self.opacity, 'culling': 'back', 'pickable': False}
         if use_scalars:
             from matplotlib.colors import ListedColormap
             kwargs.update(scalars='mark_inside', cmap=ListedColormap(
@@ -415,7 +417,7 @@ class SurfaceObject(Object):
         if self.tris is None or not np.any(self.tris):
             return
 
-        surf_dict = dict(rr=self.points, tris=self.tris)
+        surf_dict = {'rr': self.points, 'tris': self.tris}
         mesh = _create_mesh_surf(surf_dict)
         self.src = mesh
         style = 'wireframe' if self.rep == 'Wireframe' else 'surface'

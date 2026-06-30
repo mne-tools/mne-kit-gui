@@ -32,7 +32,7 @@ from ._viewer import (HeadViewController, PointObject, SurfaceObject,
 
 defaults = DEFAULTS['coreg']
 
-_VIEW_DICT = dict(lpa='left', nasion='front', rpa='right')
+_VIEW_DICT = {'lpa': 'left', 'nasion': 'front', 'rpa': 'right'}
 
 _SET_TOOLTIP = ('Click on the MRI image to set the position, '
                 'or enter values below')
@@ -81,6 +81,11 @@ class MRIHeadWithFiducialsModel(HasTraits):
         subject = kwargs.pop('subject', None)
         parent = kwargs.pop('parent', None)
         super().__init__(**kwargs)
+        self._init_sub_models()
+        self._wire_observers()
+        self._apply_deferred(subjects_dir, subject, parent)
+
+    def _init_sub_models(self):
         # Sub-models must exist before lpa/nasion/rpa are assigned below,
         # since those assignments fire observers that read self.fid etc.
         if self.subject_source is None:
@@ -99,6 +104,7 @@ class MRIHeadWithFiducialsModel(HasTraits):
         if self.rpa is None:
             self.rpa = zeros.copy()
 
+    def _wire_observers(self):
         # Wire subject_source delegations
         self.subject_source.observe(self._src_dir_changed, names=['subjects_dir'])
         self.subject_source.observe(self._src_subject_changed, names=['subject'])
@@ -112,6 +118,7 @@ class MRIHeadWithFiducialsModel(HasTraits):
                          names=['fname'])
         self.fid.observe(self._on_fid_points_changed, names=['points'])
 
+    def _apply_deferred(self, subjects_dir, subject, parent):
         if subjects_dir is not None:
             self.subjects_dir = subjects_dir
         if subject is not None:
@@ -235,7 +242,7 @@ class MRIHeadWithFiducialsModel(HasTraits):
             rr, tris = decimate_surface(self.bem_high_res.surf.rr,
                                         self.bem_high_res.surf.tris,
                                         n_triangles=5120)
-            surf = complete_surface_info(dict(rr=rr, tris=tris),
+            surf = complete_surface_info({'rr': rr, 'tris': tris},
                                          copy=False, verbose=False)
             self.bem_low_res.surf = Surf(tris=surf['tris'], rr=surf['rr'],
                                           nn=surf['nn'])
@@ -329,10 +336,10 @@ class FiducialsPanel(HasTraits):
         if path.suffix != '.fif':
             path = path.with_name(path.name + '.fif')
         if path.exists():
-            ans = QMessageBox.question(
+            reply = QMessageBox.question(
                 parent, "Overwrite File?",
                 "The file %r already exists. Replace it?" % str(path))
-            if ans != QMessageBox.Yes:
+            if reply != QMessageBox.Yes:
                 return
         self.model.save(str(path))
 
@@ -558,6 +565,7 @@ class FiducialsFrame(QMainWindow):
                 has_norm=True,
                 point_scale=self.point_scale)
             setattr(self, f'{key}_obj', obj)
+
             # Update point object when model fiducial changes
             def _make_updater(o):
                 def _upd(ch):
@@ -590,14 +598,15 @@ class FiducialsFrame(QMainWindow):
         self.mri_obj.plot()
 
     def closeEvent(self, event):
+        """Prompt to save unsaved fiducial changes before closing."""
         if self.model.can_save:
-            ans = QMessageBox.question(
+            reply = QMessageBox.question(
                 self, "Unsaved changes",
                 "There are unsaved fiducial changes. Save before closing?",
                 QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
-            if ans == QMessageBox.Save:
+            if reply == QMessageBox.Save:
                 self.model.save()
-            elif ans == QMessageBox.Cancel:
+            elif reply == QMessageBox.Cancel:
                 event.ignore()
                 return
         event.accept()

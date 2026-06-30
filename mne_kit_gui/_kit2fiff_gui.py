@@ -574,10 +574,10 @@ class Kit2FiffPanel(HasTraits):
         if path.suffix != '.fif':
             path = path.with_name(path.name + '.fif')
         if path.exists():
-            ans = QMessageBox.question(
+            reply = QMessageBox.question(
                 parent, "Overwrite File?",
                 "The file %r already exists. Replace it?" % str(path))
-            if ans != QMessageBox.Yes:
+            if reply != QMessageBox.Yes:
                 return
 
         self.queue.put((raw, path))
@@ -892,6 +892,7 @@ class Kit2FiffFrame(QMainWindow):
                    str(model.stim_threshold), home_dir, set_env=False)
 
     def closeEvent(self, event):
+        """Veto closing while files are still being saved."""
         if self.kit2fiff_panel.queue.unfinished_tasks:
             QMessageBox.information(
                 self, "Saving Still in Progress",

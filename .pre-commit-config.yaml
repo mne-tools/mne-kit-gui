@@ -8,12 +8,16 @@ repos:
     hooks:
       - id: yamllint
         args: [--strict, -c, .yamllint.yml]
-  - repo: https://github.com/mgedmin/check-manifest
-    rev: "0.51"
-    hooks:
-      - id: check-manifest
   - repo: https://github.com/pappasam/toml-sort
     rev: v0.24.4
     hooks:
       - id: toml-sort-fix
         files: pyproject.toml
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.4.2
+    hooks:
+      - id: codespell
+        additional_dependencies:
+          - tomli
+        files: ^mne_kit_gui/|^doc/$
+        types_or: [python, bib, rst, inc]

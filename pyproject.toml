@@ -40,15 +40,12 @@ classifiers = [
 
 [project.optional-dependencies]
 test = [
-  "flake8",
-  "pydocstyle",
   "pytest",
   "pytest-cov",
   "pytest-qt",
-  "check-manifest",
-  "twine",
-  "wheel",
-  "mffpy"
+  "mffpy",
+  "defusedxml",
+  "nibabel"
 ]
 
 [project.urls]
@@ -68,10 +65,13 @@ ignore = [
   ".yamllint.yml",
   "Makefile",
   "codecov.yml",
-  "environment.yml",
   "ignore_words.txt",
   "mne_kit_gui/tests/data/**"
 ]
+
+[tool.codespell]
+builtin = "clear,rare,informal,names,usage"
+ignore-words = "ignore_words.txt"
 
 [tool.pytest.ini_options]
 addopts = """\
@@ -81,6 +81,39 @@ addopts = """\
     --capture=sys\
     """
 junit_family = "xunit2"
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["A", "C", "D", "E", "F", "W"]
+ignore = [
+  "D100", # Missing docstring in public module
+  "D104", # Missing docstring in public package
+  "D107", # Missing docstring in __init__
+  "D413", # Missing blank line after last section
+  "E201", # whitespace after '('
+  "E202", # whitespace before ')'
+  "E221", # multiple spaces before operator
+  "E222", # multiple spaces after operator
+  "E241" # multiple spaces after comma
+]
+extend-select = [
+  "D214", # Section is over-indented
+  "D215", # Section underline is over-indented
+  "D404", # First word of the docstring should not be `This`
+  "D405", # Section name should be properly capitalized
+  "D406", # Section name should end with a newline
+  "D407", # Missing dashed underline after section
+  "D408", # Section underline should be in the line following the section's name
+  "D409", # Section underline should match the length of its name
+  "D410", # Missing blank line after section
+  "D411" # Missing blank line before section
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "pep257"
+ignore-decorators = ["observe", "property", "*setter"]
 
 [tool.setuptools]
 zip-safe = false
