@@ -52,7 +52,7 @@ jobs:
         if: matrix.kind == 'dev'
       - run: mne sys_info -p
       - run: python -c "import mne; mne.datasets.testing.data_path(verbose=True)"
-      - run: python -c "import mne; mne.viz.Brain('fsaverage', surface='white', subjects_dir=mne.datasets.testing.data_path(verbose=True) / 'subjects')"
+      - run: python -c "import mne; mne.viz.Brain('fsaverage', surf='white', subjects_dir=mne.datasets.testing.data_path(verbose=True) / 'subjects')"
       - run: pytest --tb=short --cov=mne_kit_gui --cov-report=xml --cov-report=html -vvv mne_kit_gui
       - uses: codecov/codecov-action@v6
         with:

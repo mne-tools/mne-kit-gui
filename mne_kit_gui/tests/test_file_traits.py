@@ -31,12 +31,12 @@ fid_path = Path(mne.__file__).parent / "data" / "fsaverage" / "fsaverage-fiducia
 def test_bem_source():
     """Test SurfaceSource."""
     bem = SurfaceSource()
-    assert bem.surf.rr.shape == (0, 3)
-    assert bem.surf.tris.shape == (0, 3)
+    assert bem.surf["rr"].shape == (0, 3)
+    assert bem.surf["tris"].shape == (0, 3)
 
     bem.file = str(bem_path)
-    assert bem.surf.rr.shape == (642, 3)
-    assert bem.surf.tris.shape == (1280, 3)
+    assert bem.surf["rr"].shape == (642, 3)
+    assert bem.surf["tris"].shape == (1280, 3)
 
 
 @testing.requires_testing_data

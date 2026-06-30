@@ -143,13 +143,9 @@ def _mne_root_problem(mne_root):
         )
 
 
-class Surf:
-    """Expose a surface similar to the ones used elsewhere in MNE."""
-
-    def __init__(self, rr=None, nn=None, tris=None):
-        self.rr = np.empty((0, 3)) if rr is None else rr
-        self.nn = np.empty((0, 3)) if nn is None else nn
-        self.tris = np.empty((0, 3), int) if tris is None else tris
+def _empty_surf():
+    """Build an empty surf dict similar to the ones used elsewhere in MNE."""
+    return {"rr": np.empty((0, 3)), "tris": np.empty((0, 3), int)}
 
 
 class SurfaceSource(HasTraits):
@@ -162,8 +158,8 @@ class SurfaceSource(HasTraits):
 
     Attributes
     ----------
-    surf : Surf | None
-        Surface object with rr, nn, tris attributes.
+    surf : dict | None
+        Surface dict with 'rr' and 'tris' keys.
 
     Notes
     -----
@@ -176,7 +172,7 @@ class SurfaceSource(HasTraits):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.surf = Surf()
+        self.surf = _empty_surf()
 
     @observe("file")
     def _file_changed(self, change):
@@ -199,9 +195,9 @@ class SurfaceSource(HasTraits):
                     )
                     self.file = ""
                     raise
-            self.surf = Surf(rr=bem["rr"], tris=bem["tris"], nn=bem["nn"])
+            self.surf = {"rr": bem["rr"], "tris": bem["tris"]}
         else:
-            self.surf = Surf()
+            self.surf = _empty_surf()
 
 
 class FiducialsSource(HasTraits):

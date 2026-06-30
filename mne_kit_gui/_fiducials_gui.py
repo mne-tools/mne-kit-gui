@@ -43,7 +43,6 @@ from ._file_traits import (
     FiducialsSource,
     MRISubjectSource,
     SubjectSelectorPanel,
-    Surf,
 )
 from ._viewer import HeadViewController, PointObject, SurfaceObject, embed_pyvista_scene
 
@@ -60,7 +59,7 @@ class MRIHeadWithFiducialsModel(HasTraits):
     Attributes
     ----------
     lpa, nasion, rpa : ndarray (1, 3)
-        Fiducial coordinates in MRI space (metres).
+        Fiducial coordinates in MRI space (meters).
     """
 
     subject_source = Any()  # MRISubjectSource
@@ -268,17 +267,17 @@ class MRIHeadWithFiducialsModel(HasTraits):
             warn(
                 "No low-resolution head found, decimating high resolution "
                 "mesh (%d vertices): %s"
-                % (len(self.bem_high_res.surf.rr), high_res_path)
+                % (len(self.bem_high_res.surf["rr"]), high_res_path)
             )
             rr, tris = decimate_surface(
-                self.bem_high_res.surf.rr, self.bem_high_res.surf.tris, n_triangles=5120
+                self.bem_high_res.surf["rr"],
+                self.bem_high_res.surf["tris"],
+                n_triangles=5120,
             )
             surf = complete_surface_info(
                 {"rr": rr, "tris": tris}, copy=False, verbose=False
             )
-            self.bem_low_res.surf = Surf(
-                tris=surf["tris"], rr=surf["rr"], nn=surf["nn"]
-            )
+            self.bem_low_res.surf = {"rr": surf["rr"], "tris": surf["tris"]}
         else:
             self.bem_low_res.file = low_res_path
 
@@ -595,9 +594,9 @@ class FiducialsFrame(QMainWindow):
         color = defaults["head_color"]
         src = self.model.bem_low_res
         self.mri_obj = SurfaceObject(
-            points=src.surf.rr if src.surf else np.empty((0, 3)),
+            points=src.surf["rr"] if src.surf else np.empty((0, 3)),
             color=color,
-            tris=src.surf.tris if src.surf else np.empty((0, 3), int),
+            tris=src.surf["tris"] if src.surf else np.empty((0, 3), int),
             scene=self.scene,
         )
         self.mri_obj.plot()
@@ -646,11 +645,11 @@ class FiducialsFrame(QMainWindow):
 
     def _on_mri_src_change(self, change):
         surf = change["new"]
-        if surf is None or not np.any(surf.tris):
+        if surf is None or not np.any(surf["tris"]):
             self.mri_obj.clear()
             return
-        self.mri_obj.points = surf.rr
-        self.mri_obj.tris = surf.tris
+        self.mri_obj.points = surf["rr"]
+        self.mri_obj.tris = surf["tris"]
         self.mri_obj.plot()
 
     def closeEvent(self, event):
