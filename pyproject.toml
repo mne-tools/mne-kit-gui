@@ -1,0 +1,77 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mne-kit-gui"
+description = "A module for KIT MEG coregistration."
+readme = "README.rst"
+license = {text = "BSD-3-Clause"}
+maintainers = [
+  {name = "Christian Brodbeck", email = "christianbrodbeck@me.com"}
+]
+requires-python = ">=3.10"
+dynamic = ["version"]
+dependencies = [
+  "numpy",
+  "scipy",
+  "pyvista>=0.43",
+  "pyvistaqt",
+  "traitlets",
+  "qtpy",
+  "mne>=0.23"
+]
+classifiers = [
+  "Intended Audience :: Science/Research",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: BSD License",
+  "Programming Language :: Python",
+  "Topic :: Software Development",
+  "Topic :: Scientific/Engineering",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: POSIX",
+  "Operating System :: Unix",
+  "Operating System :: MacOS",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13"
+]
+
+[project.optional-dependencies]
+test = [
+  "flake8",
+  "pydocstyle",
+  "pytest",
+  "pytest-cov",
+  "pytest-qt",
+  "check-manifest",
+  "twine",
+  "wheel",
+  "mffpy"
+]
+
+[project.urls]
+Homepage = "https://github.com/mne-tools/mne-kit-gui"
+Download = "https://github.com/mne-tools/mne-kit-gui"
+
+[tool.pytest.ini_options]
+addopts = """\
+    --durations=20 --doctest-modules -ra --cov-report= --tb=short \
+    --doctest-ignore-import-errors --junit-xml=junit-results.xml \
+    --ignore=mne_kit_gui/gui/_*.py \
+    --capture=sys\
+    """
+junit_family = "xunit2"
+
+[tool.setuptools]
+zip-safe = false
+
+[tool.setuptools.dynamic]
+version = {attr = "mne_kit_gui.__version__"}
+
+[tool.setuptools.package-data]
+mne_kit_gui = ["help/*.json"]
+
+[tool.setuptools.packages.find]
+include = ["mne_kit_gui*"]
