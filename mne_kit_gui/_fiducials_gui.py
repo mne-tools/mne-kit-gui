@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Mayavi/traits GUI for setting MRI fiducials."""
+"""Traitlets/Qt GUI for setting MRI fiducials."""
 
 # Authors: Christian Brodbeck <christianbrodbeck@nyu.edu>
 #
@@ -7,16 +7,14 @@
 
 import os
 
-from mayavi.core.ui.mayavi_scene import MayaviScene
-from mayavi.tools.mlab_scene_model import MlabSceneModel
 import numpy as np
-from pyface.api import confirm, error, FileDialog, OK, YES
-from traits.api import (HasTraits, HasPrivateTraits, on_trait_change,
-                        cached_property, DelegatesTo, Event, Instance,
-                        Property, Array, Bool, Button, Enum)
-from traitsui.api import HGroup, Item, VGroup, View, Handler, ArrayEditor
-from traitsui.menu import NoButtons
-from tvtk.pyface.scene_editor import SceneEditor
+
+from qtpy.QtWidgets import (QDoubleSpinBox, QFileDialog, QGroupBox,
+                             QHBoxLayout, QLabel, QMainWindow, QMessageBox,
+                             QPushButton, QRadioButton, QVBoxLayout, QWidget)
+from qtpy.QtCore import Qt
+
+from traitlets import Bool, HasTraits, Any, Unicode, observe
 
 from mne.coreg import (fid_fname, _find_fiducials_files, _find_head_bem,
                        get_mni_fiducials)
@@ -26,83 +24,176 @@ from mne.io.constants import FIFF
 from mne.surface import complete_surface_info, decimate_surface
 from mne.utils import get_subjects_dir, logger, warn
 
+from ._viewer import activate_mayavi_scene, embed_mayavi_scene
+
 from ._utils import _toggle_mlab_render
-from ._file_traits import (SurfaceSource, fid_wildcard, FiducialsSource,
+from ._file_traits import (SurfaceSource, FiducialsSource,
                            MRISubjectSource, SubjectSelectorPanel,
                            Surf)
-from ._viewer import (HeadViewController, PointObject, SurfaceObject,
-                      headview_borders, _BUTTON_WIDTH,
-                      _MRI_FIDUCIALS_WIDTH, _MM_WIDTH,
-                      _RESET_LABEL, _RESET_WIDTH, _mm_fmt)
+from ._viewer import HeadViewController, PointObject, SurfaceObject
 
 defaults = DEFAULTS['coreg']
 
+_VIEW_DICT = dict(lpa='left', nasion='front', rpa='right')
 
-class MRIHeadWithFiducialsModel(HasPrivateTraits):
+_SET_TOOLTIP = ('Click on the MRI image to set the position, '
+                'or enter values below')
+
+
+class MRIHeadWithFiducialsModel(HasTraits):
     """Represent an MRI head shape (high and low res) with fiducials.
 
     Attributes
     ----------
-    points : array (n_points, 3)
-        MRI head surface points.
-    tris : array (n_tris, 3)
-        Triangles based on points.
-    lpa : array (1, 3)
-        Left peri-auricular point coordinates.
-    nasion : array (1, 3)
-        Nasion coordinates.
-    rpa : array (1, 3)
-        Right peri-auricular point coordinates.
+    lpa, nasion, rpa : ndarray (1, 3)
+        Fiducial coordinates in MRI space (metres).
     """
 
-    subject_source = Instance(MRISubjectSource, ())
-    bem_low_res = Instance(SurfaceSource, ())
-    bem_high_res = Instance(SurfaceSource, ())
-    fid = Instance(FiducialsSource, ())
+    subject_source = Any()   # MRISubjectSource
+    bem_low_res = Any()      # SurfaceSource
+    bem_high_res = Any()     # SurfaceSource
+    fid = Any()              # FiducialsSource
 
-    fid_file = DelegatesTo('fid', 'file')
-    fid_fname = DelegatesTo('fid', 'fname')
-    fid_points = DelegatesTo('fid', 'points')
-    subjects_dir = DelegatesTo('subject_source')
-    subject = DelegatesTo('subject_source')
-    subject_has_bem = DelegatesTo('subject_source')
-    lpa = Array(float, (1, 3))
-    nasion = Array(float, (1, 3))
-    rpa = Array(float, (1, 3))
+    # delegated for convenience
+    subjects_dir = Unicode()
+    subject = Unicode()
+    subject_has_bem = Bool()
+    fid_file = Unicode()
+    fid_fname = Unicode()
+    fid_points = Any()       # ndarray (3, 3) or None
 
-    reset = Event(desc="Reset fiducials to the file.")
+    lpa = Any()     # ndarray (1, 3)
+    nasion = Any()  # ndarray (1, 3)
+    rpa = Any()     # ndarray (1, 3)
 
-    # info
-    can_save = Property(depends_on=['file', 'can_save_as'])
-    can_save_as = Property(depends_on=['lpa', 'nasion', 'rpa'])
-    can_reset = Property(depends_on=['file', 'fid.points', 'lpa', 'nasion',
-                                     'rpa'])
-    fid_ok = Property(depends_on=['lpa', 'nasion', 'rpa'], desc="All points "
-                      "are set")
-    default_fid_fname = Property(depends_on=['subjects_dir', 'subject'],
-                                 desc="the default file name for the "
-                                 "fiducials fif file")
+    can_save = Bool()
+    can_save_as = Bool()
+    can_reset = Bool()
+    fid_ok = Bool()
+    default_fid_fname = Unicode()
+    lock_fiducials = Bool(False)
 
-    # switch for the GUI (has no effect in the model)
-    lock_fiducials = Bool(False, desc="Used by GIU, has no effect in the "
-                          "model.")
+    parent = Any()  # QWidget | None, for parenting dialogs
 
-    @on_trait_change('fid_points')
-    def reset_fiducials(self):  # noqa: D102
-        if self.fid_points is not None:
-            self.lpa = self.fid_points[0:1]
-            self.nasion = self.fid_points[1:2]
-            self.rpa = self.fid_points[2:3]
+    def __init__(self, **kwargs):
+        # subjects_dir/subject trigger _on_subject_changed, which needs
+        # subject_source to already exist -- defer applying them until
+        # after the defaults below are set up.
+        subjects_dir = kwargs.pop('subjects_dir', None)
+        subject = kwargs.pop('subject', None)
+        super().__init__(**kwargs)
+        # Sub-models must exist before lpa/nasion/rpa are assigned below,
+        # since those assignments fire observers that read self.fid etc.
+        if self.subject_source is None:
+            self.subject_source = MRISubjectSource()
+        if self.bem_low_res is None:
+            self.bem_low_res = SurfaceSource()
+        if self.bem_high_res is None:
+            self.bem_high_res = SurfaceSource()
+        if self.fid is None:
+            self.fid = FiducialsSource()
+        for sub_model in (self.subject_source, self.bem_low_res,
+                         self.bem_high_res, self.fid):
+            sub_model.parent = self.parent
+
+        zeros = np.zeros((1, 3))
+        if self.lpa is None:
+            self.lpa = zeros.copy()
+        if self.nasion is None:
+            self.nasion = zeros.copy()
+        if self.rpa is None:
+            self.rpa = zeros.copy()
+
+        # Wire subject_source delegations
+        self.subject_source.observe(self._src_dir_changed, names=['subjects_dir'])
+        self.subject_source.observe(self._src_subject_changed, names=['subject'])
+        self.subject_source.observe(
+            lambda ch: setattr(self, 'subject_has_bem', ch['new']),
+            names=['subject_has_bem'])
+
+        # Wire fid delegations (bidirectional: fid.file <-> fid_file)
+        self.fid.observe(self._on_fid_file_changed, names=['file'])
+        self.fid.observe(lambda ch: setattr(self, 'fid_fname', ch['new']),
+                         names=['fname'])
+        self.fid.observe(self._on_fid_points_changed, names=['points'])
+
+        if subjects_dir is not None:
+            self.subjects_dir = subjects_dir
+        if subject is not None:
+            self.subject = subject
+
+    @observe('parent')
+    def _parent_changed(self, change):
+        for sub_model in (self.subject_source, self.bem_low_res,
+                         self.bem_high_res, self.fid):
+            sub_model.parent = change['new']
+
+    def _on_fid_file_changed(self, change):
+        self.fid_file = change['new']
+
+    @observe('fid_file')
+    def _fid_file_changed(self, change):
+        if self.fid.file != change['new']:
+            self.fid.file = change['new']
+
+    def _src_dir_changed(self, change):
+        self.subjects_dir = change['new']
+        self._update_default_fid_fname()
+
+    def _src_subject_changed(self, change):
+        self.subject = change['new']
+        self._update_default_fid_fname()
+
+    def _update_default_fid_fname(self):
+        sdir = self.subjects_dir
+        sub = self.subject
+        if sdir and sub:
+            self.default_fid_fname = fid_fname.format(
+                subjects_dir=sdir, subject=sub)
+        else:
+            self.default_fid_fname = ''
+
+    @observe('lpa', 'nasion', 'rpa')
+    def _fiducials_changed(self, change):
+        self._update_can_flags()
+
+    def _update_can_flags(self):
+        nas, lpa, rpa = self.nasion, self.lpa, self.rpa
+        can_save_as = not (np.all(nas == lpa) or
+                           np.all(nas == rpa) or
+                           np.all(lpa == rpa))
+        self.can_save_as = can_save_as
+        self.can_save = (can_save_as and
+                         bool(self.fid_file or
+                              (self.subjects_dir and self.subject)))
+        self.fid_ok = all(np.any(pt) for pt in (nas, lpa, rpa))
+        self._update_can_reset()
+
+    def _update_can_reset(self):
+        fp = self.fid.points
+        if not self.fid_file or fp is None:
+            self.can_reset = False
+            return
+        self.can_reset = bool(
+            np.any(self.lpa != fp[0:1]) or
+            np.any(self.nasion != fp[1:2]) or
+            np.any(self.rpa != fp[2:3])
+        )
+
+    def _on_fid_points_changed(self, change):
+        self.fid_points = change['new']
+        self.reset_fiducials()
+
+    def reset_fiducials(self):
+        """Reset fiducial positions from the loaded fid file."""
+        fp = self.fid_points
+        if fp is not None:
+            self.lpa = fp[0:1]
+            self.nasion = fp[1:2]
+            self.rpa = fp[2:3]
 
     def save(self, fname=None):
-        """Save the current fiducials to a file.
-
-        Parameters
-        ----------
-        fname : str
-            Destination file path. If None, will use the current fid filename
-            if available, or else use the default pattern.
-        """
+        """Save the current fiducials to a file."""
         if fname is None:
             fname = self.fid_file
         if not fname:
@@ -118,399 +209,411 @@ class MRIHeadWithFiducialsModel(HasPrivateTraits):
                 'ident': FIFF.FIFFV_POINT_RPA,
                 'r': np.array(self.rpa[0])}]
         write_fiducials(fname, dig, FIFF.FIFFV_COORD_MRI)
-        self.fid_file = fname
+        self.fid.file = fname
 
-    @cached_property
-    def _get_can_reset(self):
-        if not self.fid_file:
-            return False
-        elif np.any(self.lpa != self.fid.points[0:1]):
-            return True
-        elif np.any(self.nasion != self.fid.points[1:2]):
-            return True
-        elif np.any(self.rpa != self.fid.points[2:3]):
-            return True
-        return False
-
-    @cached_property
-    def _get_can_save_as(self):
-        can = not (np.all(self.nasion == self.lpa) or
-                   np.all(self.nasion == self.rpa) or
-                   np.all(self.lpa == self.rpa))
-        return can
-
-    @cached_property
-    def _get_can_save(self):
-        if not self.can_save_as:
-            return False
-        elif self.fid_file:
-            return True
-        elif self.subjects_dir and self.subject:
-            return True
-        else:
-            return False
-
-    @cached_property
-    def _get_default_fid_fname(self):
-        fname = fid_fname.format(subjects_dir=self.subjects_dir,
-                                 subject=self.subject)
-        return fname
-
-    @cached_property
-    def _get_fid_ok(self):
-        return all(np.any(pt) for pt in (self.nasion, self.lpa, self.rpa))
-
-    def _reset_fired(self):
-        self.reset_fiducials()
-
-    # if subject changed because of a change of subjects_dir this was not
-    # triggered
-    @on_trait_change('subjects_dir,subject')
-    def _subject_changed(self):
-        subject = self.subject
-        subjects_dir = self.subjects_dir
+    def load_subject(self, subject=None, subjects_dir=None):
+        """Load head surface and fiducial info for the given subject."""
+        if subject is None:
+            subject = self.subject
+        if subjects_dir is None:
+            subjects_dir = self.subjects_dir
         if not subjects_dir or not subject:
             return
 
-        # find high-res head model (if possible)
         high_res_path = _find_head_bem(subject, subjects_dir, high_res=True)
         low_res_path = _find_head_bem(subject, subjects_dir, high_res=False)
         if high_res_path is None and low_res_path is None:
             msg = 'No standard head model was found for subject %s' % subject
-            error(None, msg, "No head surfaces found")
+            QMessageBox.critical(self.parent, "No head surfaces found", msg)
             raise RuntimeError(msg)
         if high_res_path is not None:
             self.bem_high_res.file = high_res_path
         else:
             self.bem_high_res.file = low_res_path
+
         if low_res_path is None:
-            # This should be very rare!
             warn('No low-resolution head found, decimating high resolution '
                  'mesh (%d vertices): %s' % (len(self.bem_high_res.surf.rr),
-                                             high_res_path,))
-            # Create one from the high res one, which we know we have
+                                             high_res_path))
             rr, tris = decimate_surface(self.bem_high_res.surf.rr,
                                         self.bem_high_res.surf.tris,
                                         n_triangles=5120)
             surf = complete_surface_info(dict(rr=rr, tris=tris),
                                          copy=False, verbose=False)
-            # directly set the attributes of bem_low_res
             self.bem_low_res.surf = Surf(tris=surf['tris'], rr=surf['rr'],
-                                         nn=surf['nn'])
+                                          nn=surf['nn'])
         else:
             self.bem_low_res.file = low_res_path
 
-        # Set MNI points
         try:
             fids = get_mni_fiducials(subject, subjects_dir)
-        except Exception:  # some problem, leave at origin
+        except Exception:
             self.fid.mni_points = None
         else:
             self.fid.mni_points = np.array([f['r'] for f in fids], float)
 
-        # find fiducials file
         fid_files = _find_fiducials_files(subject, subjects_dir)
         if len(fid_files) == 0:
-            self.fid.reset_traits(['file'])
+            self.fid.file = ''
             self.lock_fiducials = False
         else:
-            self.fid_file = fid_files[0].format(subjects_dir=subjects_dir,
-                                                subject=subject)
+            self.fid.file = fid_files[0].format(subjects_dir=subjects_dir,
+                                                 subject=subject)
             self.lock_fiducials = True
 
-        # does not seem to happen by itself ... so hard code it:
         self.reset_fiducials()
 
-
-class SetHandler(Handler):
-    """Handler to change style when setting MRI fiducials."""
-
-    def object_set_changed(self, info):  # noqa: D102
-        return self.object_locked_changed(info)
-
-    def object_locked_changed(self, info):  # noqa: D102
-        if info.object.locked:
-            ss = ''
-        else:
-            ss = 'border-style: solid; border-color: red; border-width: 2px;'
-        # This will only work for Qt, but hopefully that's most users!
-        try:
-            _color_children(info.ui.info.ui.control, ss)
-        except AttributeError:  # safeguard for wxpython
-            pass
+    @observe('subjects_dir', 'subject')
+    def _on_subject_changed(self, change):
+        """React to subject/subjects_dir changes coming from this object."""
+        # Also forward to subject_source so it stays in sync
+        ss = self.subject_source
+        if change['name'] == 'subjects_dir' and ss.subjects_dir != change['new']:
+            ss.subjects_dir = change['new']
+        elif change['name'] == 'subject' and ss.subject != change['new']:
+            ss.subject = change['new']
+        if self.subjects_dir and self.subject:
+            try:
+                self.load_subject()
+            except RuntimeError:
+                pass
+            self._update_default_fid_fname()
 
 
-def _color_children(obj, ss):
-    """Qt helper."""
-    for child in obj.children():
-        if 'QRadioButton' in repr(child):
-            child.setStyleSheet(ss if child.isChecked() else '')
-        elif 'QLineEdit' in repr(child):
-            child.setStyleSheet(ss)
-        elif 'QWidget' in repr(child):  # on Linux it's nested
-            _color_children(child, ss)
+class FiducialsPanel(HasTraits):
+    """Set fiducials on an MRI surface (model/controller layer)."""
 
+    model = Any()   # MRIHeadWithFiducialsModel
+    headview = Any()  # HeadViewController
+    hsp_obj = Any()   # SurfaceObject
 
-_SET_TOOLTIP = ('Click on the MRI image to set the position, '
-                'or enter values below')
+    set = Unicode('LPA')        # 'LPA' | 'Nasion' | 'RPA'
+    current_pos_mm = Any()      # ndarray (1, 3) in mm
 
+    picker = Any()
 
-class FiducialsPanel(HasPrivateTraits):
-    """Set fiducials on an MRI surface."""
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if self.current_pos_mm is None:
+            self.current_pos_mm = np.zeros((1, 3))
+        if self.model is not None:
+            self.model.observe(self._on_model_fid_changed,
+                               names=['lpa', 'nasion', 'rpa'])
 
-    model = Instance(MRIHeadWithFiducialsModel)
-
-    fid_file = DelegatesTo('model')
-    fid_fname = DelegatesTo('model')
-    lpa = DelegatesTo('model')
-    nasion = DelegatesTo('model')
-    rpa = DelegatesTo('model')
-    can_save = DelegatesTo('model')
-    can_save_as = DelegatesTo('model')
-    can_reset = DelegatesTo('model')
-    fid_ok = DelegatesTo('model')
-    locked = DelegatesTo('model', 'lock_fiducials')
-
-    set = Enum('LPA', 'Nasion', 'RPA')
-    current_pos_mm = Array(float, (1, 3))
-
-    save_as = Button(label='Save as...')
-    save = Button(label='Save')
-    reset_fid = Button(label=_RESET_LABEL)
-
-    headview = Instance(HeadViewController)
-    hsp_obj = Instance(SurfaceObject)
-
-    picker = Instance(object)
-
-    # the layout of the dialog created
-    view = View(VGroup(
-        HGroup(Item('fid_file', width=_MRI_FIDUCIALS_WIDTH,
-                    tooltip='MRI fiducials file'), show_labels=False),
-        HGroup(Item('set', width=_MRI_FIDUCIALS_WIDTH,
-                    format_func=lambda x: x, style='custom',
-                    tooltip=_SET_TOOLTIP), show_labels=False),
-        HGroup(Item('current_pos_mm',
-                    editor=ArrayEditor(width=_MM_WIDTH, format_func=_mm_fmt),
-                    tooltip='MRI fiducial position (mm)'), show_labels=False),
-        HGroup(Item('save', enabled_when='can_save',
-                    tooltip="If a filename is currently specified, save to "
-                    "that file, otherwise save to the default file name",
-                    width=_BUTTON_WIDTH),
-               Item('save_as', enabled_when='can_save_as',
-                    width=_BUTTON_WIDTH),
-               Item('reset_fid', enabled_when='can_reset', width=_RESET_WIDTH,
-                    tooltip='Reset to file values (if available)'),
-               show_labels=False),
-        enabled_when="locked==False", show_labels=False), handler=SetHandler())
-
-    def __init__(self, *args, **kwargs):  # noqa: D102
-        super(FiducialsPanel, self).__init__(*args, **kwargs)
-
-    @on_trait_change('current_pos_mm')
-    def _update_pos(self):
+    def _on_model_fid_changed(self, change):
+        """Update current_pos_mm when the active fiducial changes."""
         attr = self.set.lower()
-        if not np.allclose(getattr(self, attr), self.current_pos_mm * 1e-3):
-            setattr(self, attr, self.current_pos_mm * 1e-3)
+        val = getattr(self.model, attr)
+        if val is not None:
+            self.current_pos_mm = val * 1000
 
-    @on_trait_change('model:lpa,model:nasion,model:rpa')
-    def _update_fiducial(self, value):
+    @observe('current_pos_mm')
+    def _pos_mm_changed(self, change):
         attr = self.set.lower()
-        self.current_pos_mm = getattr(self, attr) * 1000
+        new_m = change['new'] * 1e-3
+        if not np.allclose(getattr(self.model, attr), new_m):
+            setattr(self.model, attr, new_m)
 
-    def _reset_fid_fired(self):
-        self.model.reset = True
+    @observe('set')
+    def _set_changed(self, change):
+        new = change['new'].lower()
+        self._on_model_fid_changed(None)
+        if self.headview is not None:
+            self.headview.on_set_view(_VIEW_DICT[new])
 
-    def _save_fired(self):
-        self.model.save()
-
-    def _save_as_fired(self):
-        if self.fid_file:
-            default_path = self.fid_file
-        else:
-            default_path = self.model.default_fid_fname
-
-        dlg = FileDialog(action="save as", wildcard=fid_wildcard,
-                         default_path=default_path)
-        dlg.open()
-        if dlg.return_code != OK:
+    def save_as(self, parent=None):
+        """Prompt for a path and save fiducials."""
+        default = self.model.fid_file or self.model.default_fid_fname
+        path, _ = QFileDialog.getSaveFileName(
+            parent, "Save Fiducials", default, "Fiducials (*.fif)")
+        if not path:
             return
-
-        path = dlg.path
         if not path.endswith('.fif'):
-            path = path + '.fif'
-            if os.path.exists(path):
-                answer = confirm(None, "The file %r already exists. Should it "
-                                 "be replaced?", "Overwrite File?")
-                if answer != YES:
-                    return
-
+            path += '.fif'
+        if os.path.exists(path):
+            ans = QMessageBox.question(
+                parent, "Overwrite File?",
+                "The file %r already exists. Replace it?" % path)
+            if ans != QMessageBox.Yes:
+                return
         self.model.save(path)
 
     def _on_pick(self, picker):
-        if self.locked:
+        """Handle a mayavi pick event — position the active fiducial."""
+        if self.model.lock_fiducials:
             return
 
         self.picker = picker
         n_pos = len(picker.picked_positions)
-
         if n_pos == 0:
             logger.debug("GUI: picked empty location")
             return
 
-        if picker.actor is self.hsp_obj.surf.actor.actor:
-            idxs = []
-            idx = None
+        hsp_surf = self.hsp_obj.surf if self.hsp_obj else None
+        if hsp_surf is None:
+            return
+
+        if picker.actor is hsp_surf.actor.actor:
             pt = [picker.pick_position]
-        elif self.hsp_obj.surf.actor.actor in picker.actors:
-            idxs = [i for i in range(n_pos) if picker.actors[i] is
-                    self.hsp_obj.surf.actor.actor]
-            idx = idxs[-1]
-            pt = [picker.picked_positions[idx]]
+        elif hsp_surf.actor.actor in picker.actors:
+            idxs = [i for i in range(n_pos) if
+                    picker.actors[i] is hsp_surf.actor.actor]
+            pt = [picker.picked_positions[idxs[-1]]]
         else:
             logger.debug("GUI: picked object other than MRI")
             return
 
-        def round_(x):
-            return round(x, 3)
-
-        poss = [map(round_, pos) for pos in picker.picked_positions]
-        pos = map(round_, picker.pick_position)
-        msg = ["Pick Event: %i picked_positions:" % n_pos]
-
-        line = str(pos)
-        if idx is None:
-            line += " <-pick_position"
-        msg.append(line)
-
-        for i, pos in enumerate(poss):
-            line = str(pos)
-            if i == idx:
-                line += " <- MRI mesh"
-            elif i in idxs:
-                line += " (<- also MRI mesh)"
-            msg.append(line)
-        logger.debug('\n'.join(msg))
-
         set_ = self.set.lower()
-        assert set_ in _VIEW_DICT, set_
-        setattr(self, set_, pt)
-
-    @on_trait_change('set')
-    def _on_set_change(self, obj, name, old, new):
-        new = new.lower()
-        self._update_fiducial(None)
-        setattr(self.headview, _VIEW_DICT[new], True)
+        setattr(self.model, set_, pt)
 
 
-_VIEW_DICT = dict(lpa='left', nasion='front', rpa='right')
-
-# FiducialsPanel view that allows manipulating all coordinates numerically
-view2 = View(VGroup(Item('fid_file', label='Fiducials File'),
-                    Item('fid_fname', show_label=False, style='readonly'),
-                    Item('set', style='custom'), 'lpa', 'nasion', 'rpa',
-                    HGroup(Item('save', enabled_when='can_save'),
-                           Item('save_as', enabled_when='can_save_as'),
-                           Item('reset_fid', enabled_when='can_reset'),
-                           show_labels=False),
-                    enabled_when="locked==False"))
-
-
-class FiducialsFrame(HasTraits):
-    """GUI for interpolating between two KIT marker files.
+class FiducialsFrame(QMainWindow):
+    """Qt window for setting MRI fiducials with a mayavi 3D scene.
 
     Parameters
     ----------
     subject : None | str
-        Set the subject which is initially selected.
+        Subject to select initially.
     subjects_dir : None | str
         Override the SUBJECTS_DIR environment variable.
     """
 
-    model = Instance(MRIHeadWithFiducialsModel, ())
+    def __init__(self, subject=None, subjects_dir=None, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Set MRI Fiducials")
+        self.setAttribute(Qt.WA_DeleteOnClose, True)
 
-    scene = Instance(MlabSceneModel, ())
-    headview = Instance(HeadViewController)
+        # --- model layer ---
+        self.model = MRIHeadWithFiducialsModel(parent=self)
 
-    spanel = Instance(SubjectSelectorPanel)
-    panel = Instance(FiducialsPanel)
+        # Mayavi scene embedded directly via the toolkit scene class
+        # (no traitsui needed; see _viewer.embed_mayavi_scene).
+        self._scene_widget = QWidget(self)
+        QVBoxLayout(self._scene_widget)
+        self.scene = embed_mayavi_scene(self._scene_widget)
 
-    mri_obj = Instance(SurfaceObject)
-    point_scale = float(defaults['mri_fid_scale'])
-    lpa_obj = Instance(PointObject)
-    nasion_obj = Instance(PointObject)
-    rpa_obj = Instance(PointObject)
+        self.headview = HeadViewController(scene=self.scene, system='RAS')
+        self.panel = FiducialsPanel(model=self.model, headview=self.headview)
+        self.spanel = SubjectSelectorPanel(
+            model=self.model.subject_source, parent=self)
 
-    def _headview_default(self):
-        return HeadViewController(scene=self.scene, system='RAS')
+        point_scale = float(defaults['mri_fid_scale'])
+        self.point_scale = point_scale
+        self.mri_obj = None
+        self.lpa_obj = None
+        self.nasion_obj = None
+        self.rpa_obj = None
 
-    def _panel_default(self):
-        panel = FiducialsPanel(model=self.model, headview=self.headview)
-        panel.trait_view('view', view2)
-        return panel
+        # Build Qt UI
+        self._build_ui()
 
-    def _spanel_default(self):
-        return SubjectSelectorPanel(model=self.model.subject_source)
-
-    view = View(HGroup(Item('scene',
-                            editor=SceneEditor(scene_class=MayaviScene),
-                            dock='vertical'),
-                       VGroup(headview_borders,
-                              VGroup(Item('spanel', style='custom'),
-                                     label="Subject", show_border=True,
-                                     show_labels=False),
-                              VGroup(Item('panel', style="custom"),
-                                     label="Fiducials", show_border=True,
-                                     show_labels=False),
-                              show_labels=False),
-                       show_labels=False),
-                resizable=True,
-                buttons=NoButtons)
-
-    def __init__(self, subject=None, subjects_dir=None,
-                 **kwargs):  # noqa: D102
-        super(FiducialsFrame, self).__init__(**kwargs)
-
+        # Load subjects_dir / subject if provided
         subjects_dir = get_subjects_dir(subjects_dir)
-        if subjects_dir is not None:
+        if subjects_dir:
             self.spanel.subjects_dir = subjects_dir
+        if subject and subject in self.spanel.subjects:
+            self.spanel.subject = subject
 
-        if subject is not None:
-            if subject in self.spanel.subjects:
-                self.spanel.subject = subject
+        # Activate the scene now that all 'activated' listeners (headview,
+        # this frame) are registered, then initialize the 3D plot.
+        activate_mayavi_scene(self.scene)
+        self._init_plot()
 
-    @on_trait_change('scene.activated')
+    # ------------------------------------------------------------------
+    # UI construction
+    # ------------------------------------------------------------------
+
+    def _build_ui(self):
+        central = QWidget(self)
+        self.setCentralWidget(central)
+        main_layout = QHBoxLayout(central)
+
+        # Left: 3D scene
+        main_layout.addWidget(self._scene_widget, stretch=3)
+
+        # Right: controls panel
+        ctrl = QWidget()
+        ctrl_layout = QVBoxLayout(ctrl)
+        main_layout.addWidget(ctrl, stretch=1)
+
+        # Head view buttons
+        vg = QGroupBox("View")
+        vg_layout = QVBoxLayout(vg)
+        for label, view_name in [("Front", "front"), ("Left", "left"),
+                                  ("Right", "right"), ("Top", "top")]:
+            btn = QPushButton(label)
+            btn.clicked.connect(lambda _, v=view_name: self.headview.on_set_view(v))
+            vg_layout.addWidget(btn)
+        ctrl_layout.addWidget(vg)
+
+        # Subject selector
+        sg = QGroupBox("Subject")
+        sg_layout = QVBoxLayout(sg)
+        from qtpy.QtWidgets import QComboBox, QLineEdit
+        self._subjects_dir_edit = QLineEdit()
+        self._subjects_dir_edit.setPlaceholderText("SUBJECTS_DIR")
+        self._subjects_dir_edit.editingFinished.connect(
+            lambda: setattr(self.spanel, 'subjects_dir',
+                            self._subjects_dir_edit.text()))
+        self._subject_combo = QComboBox()
+        self._subject_combo.currentTextChanged.connect(
+            lambda s: setattr(self.spanel, 'subject', s))
+        sg_layout.addWidget(self._subjects_dir_edit)
+        sg_layout.addWidget(self._subject_combo)
+        ctrl_layout.addWidget(sg)
+        # Keep combo populated when subjects list changes
+        self.model.subject_source.observe(
+            self._update_subject_combo, names=['subjects'])
+        self.model.subject_source.observe(
+            lambda ch: self._subject_combo.setCurrentText(ch['new']),
+            names=['subject'])
+
+        # Fiducial set picker
+        fg = QGroupBox("Set fiducial")
+        fg_layout = QVBoxLayout(fg)
+        self._set_radios = {}
+        for label in ('LPA', 'Nasion', 'RPA'):
+            rb = QRadioButton(label)
+            rb.toggled.connect(
+                lambda checked, lbl=label: (
+                    setattr(self.panel, 'set', lbl) if checked else None))
+            fg_layout.addWidget(rb)
+            self._set_radios[label] = rb
+        self._set_radios['LPA'].setChecked(True)
+        ctrl_layout.addWidget(fg)
+
+        # Current position spinboxes (mm)
+        pg = QGroupBox("Position (mm)")
+        pg_layout = QHBoxLayout(pg)
+        self._pos_spins = []
+        for i, axis in enumerate('XYZ'):
+            spin = QDoubleSpinBox()
+            spin.setRange(-500, 500)
+            spin.setDecimals(1)
+            spin.setSingleStep(0.1)
+            spin.valueChanged.connect(
+                lambda v, idx=i: self._on_pos_spin_changed(idx, v))
+            pg_layout.addWidget(QLabel(axis))
+            pg_layout.addWidget(spin)
+            self._pos_spins.append(spin)
+        ctrl_layout.addWidget(pg)
+        self.panel.observe(self._update_pos_spins, names=['current_pos_mm'])
+
+        # Save / reset buttons
+        bg = QGroupBox("File")
+        bg_layout = QVBoxLayout(bg)
+        self._save_btn = QPushButton("Save")
+        self._save_btn.clicked.connect(lambda: self.model.save())
+        self._save_as_btn = QPushButton("Save As...")
+        self._save_as_btn.clicked.connect(lambda: self.panel.save_as(self))
+        self._reset_btn = QPushButton("↻ Reset")
+        self._reset_btn.clicked.connect(lambda: self.model.reset_fiducials())
+        bg_layout.addWidget(self._save_btn)
+        bg_layout.addWidget(self._save_as_btn)
+        bg_layout.addWidget(self._reset_btn)
+        ctrl_layout.addWidget(bg)
+
+        # Update button enabled states
+        self.model.observe(self._update_buttons,
+                           names=['can_save', 'can_save_as', 'can_reset'])
+        self._update_buttons()
+
+        ctrl_layout.addStretch()
+        self.resize(900, 700)
+
+    def _update_subject_combo(self, change):
+        subjects = change['new']
+        self._subject_combo.blockSignals(True)
+        self._subject_combo.clear()
+        self._subject_combo.addItems(subjects)
+        cur = self.spanel.subject
+        if cur in subjects:
+            self._subject_combo.setCurrentText(cur)
+        self._subject_combo.blockSignals(False)
+
+    def _on_pos_spin_changed(self, idx, value):
+        pos = self.panel.current_pos_mm.copy()
+        pos[0, idx] = value
+        self.panel.current_pos_mm = pos
+
+    def _update_pos_spins(self, change):
+        pos = change['new']
+        for i, spin in enumerate(self._pos_spins):
+            spin.blockSignals(True)
+            spin.setValue(float(pos[0, i]))
+            spin.blockSignals(False)
+
+    def _update_buttons(self, change=None):
+        self._save_btn.setEnabled(bool(self.model.can_save))
+        self._save_as_btn.setEnabled(bool(self.model.can_save_as))
+        self._reset_btn.setEnabled(bool(self.model.can_reset))
+
+    # ------------------------------------------------------------------
+    # 3D scene initialisation
+    # ------------------------------------------------------------------
+
     def _init_plot(self):
         _toggle_mlab_render(self, False)
 
-        # bem
         color = defaults['mri_color']
-        self.mri_obj = SurfaceObject(points=self.model.points, color=color,
-                                     tri=self.model.tris, scene=self.scene)
-        self.model.on_trait_change(self._on_mri_src_change, 'tris')
+        src = self.model.bem_low_res
+        self.mri_obj = SurfaceObject(
+            points=src.surf.rr if src.surf else np.empty((0, 3)),
+            color=color,
+            tris=src.surf.tris if src.surf else np.empty((0, 3), int),
+            scene=self.scene)
+        self.mri_obj.plot()
         self.panel.hsp_obj = self.mri_obj
 
-        # fiducials
-        for key in ('lpa', 'nasion', 'rpa'):
-            attr = f'{key}_obj'
-            setattr(self, attr, PointObject(
-                scene=self.scene, color=defaults[f'{key}_color'],
-                has_norm=True, point_scale=self.point_scale))
-            obj = getattr(self, attr)
-            self.panel.sync_trait(key, obj, 'points', mutual=False)
-            self.sync_trait('point_scale', obj, mutual=False)
+        # Watch for BEM surface changes
+        self.model.bem_low_res.observe(self._on_mri_src_change, names=['surf'])
 
-        self.headview.left = True
+        # Fiducial point objects
+        for key in ('lpa', 'nasion', 'rpa'):
+            obj = PointObject(
+                scene=self.scene,
+                color=defaults[f'{key}_color'],
+                has_norm=True,
+                point_scale=self.point_scale)
+            setattr(self, f'{key}_obj', obj)
+            # Update point object when model fiducial changes
+            def _make_updater(o):
+                def _upd(ch):
+                    v = ch['new']
+                    if v is not None:
+                        o.points = v
+                return _upd
+            self.model.observe(_make_updater(obj), names=[key])
+            # Set initial position
+            v = getattr(self.model, key)
+            if v is not None:
+                obj.points = v
+
+        self.headview.on_set_view('left')
         _toggle_mlab_render(self, True)
 
-        # picker
-        self.scene.mayavi_scene.on_mouse_pick(self.panel._on_pick, type='cell')
+        # Mouse picking for fiducial placement
+        self.scene.mayavi_scene.on_mouse_pick(
+            self.panel._on_pick, type='cell')
 
-    def _on_mri_src_change(self):
-        if (not np.any(self.model.points)) or (not np.any(self.model.tris)):
+    def _on_mri_src_change(self, change):
+        surf = change['new']
+        if surf is None or not np.any(surf.tris):
             self.mri_obj.clear()
             return
-
-        self.mri_obj.points = self.model.points
-        self.mri_obj.tri = self.model.tris
+        self.mri_obj.points = surf.rr
+        self.mri_obj.tris = surf.tris
         self.mri_obj.plot()
+
+    def closeEvent(self, event):
+        if self.model.can_save:
+            ans = QMessageBox.question(
+                self, "Unsaved changes",
+                "There are unsaved fiducial changes. Save before closing?",
+                QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
+            if ans == QMessageBox.Save:
+                self.model.save()
+            elif ans == QMessageBox.Cancel:
+                event.ignore()
+                return
+        event.accept()

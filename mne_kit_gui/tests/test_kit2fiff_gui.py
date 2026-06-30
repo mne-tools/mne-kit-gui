@@ -110,28 +110,26 @@ def test_kit2fiff_model(tmpdir):
     assert model.sqd_file == ""
 
 
-def test_kit2fiff_gui(tmpdir, monkeypatch):
+def test_kit2fiff_gui(qtbot, tmpdir, monkeypatch):
     """Test Kit2Fiff GUI."""
     home_dir = str(tmpdir)
-    monkeypatch.setenv('_MNE_GUI_TESTING_MODE', 'true')
     monkeypatch.setenv('_MNE_FAKE_HOME_DIR', home_dir)
 
-    from pyface.api import GUI
-    gui = GUI()
-    gui.process_events()
+    # WA_DeleteOnClose means this frame's underlying C++ object is gone
+    # once we close it below, so don't also register it with qtbot for
+    # auto-close at teardown -- that would double-close it.
+    frame = mne_kit_gui.kit2fiff(block=False)
 
-    ui, frame = mne_kit_gui.kit2fiff()
     assert not frame.model.can_save
     assert frame.model.stim_threshold == 1.
     frame.model.stim_threshold = 10.
     frame.model.stim_chs = 'save this!'
     frame.save_config(home_dir)
-    ui.dispose()
-
-    gui.process_events()
+    frame.close()
 
     # test setting persistence
-    ui, frame = mne_kit_gui.kit2fiff()
+    frame = mne_kit_gui.kit2fiff(block=False)
+    qtbot.addWidget(frame)
     assert frame.model.stim_threshold == 10.
     assert frame.model.stim_chs == 'save this!'
 
@@ -148,9 +146,6 @@ def test_kit2fiff_gui(tmpdir, monkeypatch):
     assert_allclose(frame.marker_panel.mrk3_obj.points, points, atol=1e-6)
     frame.marker_panel.mrk1_obj.label = True
     frame.marker_panel.mrk1_obj.label = False
-    frame.kit2fiff_panel.clear_all = True
+    frame.model.clear_all()
     assert_array_equal(frame.marker_panel.mrk1_obj.points, 0)
     assert_array_equal(frame.marker_panel.mrk3_obj.points, 0)
-    ui.dispose()
-
-    gui.process_events()

@@ -4,22 +4,13 @@
 #
 # License: BSD-3-Clause
 
-from ._backend import _testing_mode
+from mne.viz.backends._utils import _init_mne_qtapp, _qt_app_exec
 
 
 __version__ = '1.3.0'
 
 
-def _initialize_gui(frame, view=None):
-    """Initialize GUI depending on testing mode."""
-    if _testing_mode():  # open without entering mainloop
-        return frame.edit_traits(view=view), frame
-    else:
-        frame.configure_traits(view=view)
-        return frame
-
-
-def fiducials(subject=None, fid_file=None, subjects_dir=None):
+def fiducials(subject=None, fid_file=None, subjects_dir=None, *, block=True):
     """Set the fiducials for an MRI subject.
 
     Parameters
@@ -31,6 +22,10 @@ def fiducials(subject=None, fid_file=None, subjects_dir=None):
         ("{subjects_dir}/{subject}/bem/{subject}-fiducials.fif").
     subjects_dir : None | str
         Overrule the subjects_dir environment variable.
+    block : bool
+        If True (default), enter the Qt event loop and block until the
+        GUI is closed. Set to False (e.g. in tests) to show the GUI
+        without blocking.
 
     Returns
     -------
@@ -42,27 +37,40 @@ def fiducials(subject=None, fid_file=None, subjects_dir=None):
     All parameters are optional, since they can be set through the GUI.
     The functionality in this GUI is also part of :func:`coregistration`.
     """
-    from ._backend import _check_backend
-    _check_backend()
     from ._fiducials_gui import FiducialsFrame
-    frame = FiducialsFrame(subject, subjects_dir, fid_file=fid_file)
-    return _initialize_gui(frame)
+    app = _init_mne_qtapp()
+    frame = FiducialsFrame(subject=subject, subjects_dir=subjects_dir)
+    if fid_file is not None:
+        frame.model.fid.file = fid_file
+    frame.show()
+    if block:
+        _qt_app_exec(app)
+    return frame
 
 
-def kit2fiff():
+def kit2fiff(*, block=True):
     """Convert KIT files to the fiff format.
 
     The recommended way to use the GUI is through bash with::
 
         $ mne kit2fiff
 
+    Parameters
+    ----------
+    block : bool
+        If True (default), enter the Qt event loop and block until the
+        GUI is closed. Set to False (e.g. in tests) to show the GUI
+        without blocking.
+
     Returns
     -------
     frame : instance of Kit2FiffFrame
         The GUI frame.
     """
-    from ._backend import _check_backend
-    _check_backend()
     from ._kit2fiff_gui import Kit2FiffFrame
+    app = _init_mne_qtapp()
     frame = Kit2FiffFrame()
-    return _initialize_gui(frame)
+    frame.show()
+    if block:
+        _qt_app_exec(app)
+    return frame

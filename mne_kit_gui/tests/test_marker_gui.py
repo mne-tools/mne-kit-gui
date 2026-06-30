@@ -34,7 +34,7 @@ def test_combine_markers_model(tmpdir):
     assert_array_equal(model.mrk3.points, model.mrk1.points)
 
     # set second marker
-    model.mrk2.clear = True
+    model.mrk2.clear()
     model.mrk2.file = mrk_post_path
     assert np.any(model.mrk3.points)
     points_interpolate_mrk1_mrk2 = model.mrk3.points
@@ -45,7 +45,7 @@ def test_combine_markers_model(tmpdir):
     assert_array_equal(model.mrk3.points, mrk_avg)
 
     # clear second marker
-    model.mrk2.clear = True
+    model.mrk2.clear()
     assert_array_equal(model.mrk1.points, model.mrk3.points)
 
     # I/O
@@ -60,14 +60,13 @@ def test_combine_markers_model(tmpdir):
     assert_array_equal(model.mrk3.points[1:], mrk_avg[1:])
 
     # reset model
-    model.clear = True
+    model.clear()
     model.mrk1.file = mrk_pre_path
     model.mrk2.file = mrk_post_path
     assert_array_equal(model.mrk3.points, points_interpolate_mrk1_mrk2)
 
 
-def test_combine_markers_panel(monkeypatch):
+def test_combine_markers_panel():
     """Test CombineMarkersPanel."""
     from mne_kit_gui._marker_gui import CombineMarkersPanel
-    monkeypatch.setenv('_MNE_GUI_TESTING_MODE', 'true')
     CombineMarkersPanel()

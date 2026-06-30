@@ -15,18 +15,12 @@ subjects_dir = op.join(data_path, 'subjects')
 
 def pytest_configure(config):
     """Configure pytest options."""
-    # Fixtures
-    config.addinivalue_line('usefixtures', 'traits_test')
     warning_lines = r"""
     error::
-    ignore:.*in an Any trait will be shared.*:DeprecationWarning
     ignore:.*Call to deprecated .* vtk.*:DeprecationWarning
     ignore:SelectableGroups dict interface.*:DeprecationWarning
-    ignore:.*use "HasTraits\.trait_set".*:DeprecationWarning
     ignore:.*imp module is deprecated in favour of.*:DeprecationWarning
-    ignore:.*trait handler has been deprecated.*:DeprecationWarning
     ignore:.*np\.loads is deprecated.*:DeprecationWarning
-    ignore:.*metadata has been deprecated.*:DeprecationWarning
     ignore:^numpy\.ufunc size changed.*:RuntimeWarning
     ignore:.*invalid escape sequence.*:
     ignore:.*an integer is required \(got type.*:DeprecationWarning
@@ -38,7 +32,6 @@ def pytest_configure(config):
     ignore:Implementing implicit namespace packages.*:DeprecationWarning
     ignore:Deprecated call to `pkg_resources.*:DeprecationWarning
     ignore:pkg_resources is deprecated as an API.*:DeprecationWarning
-    ignore:The traitsui.qt4.*:FutureWarning
     ignore:numpy\.ndarray size changed.*:RuntimeWarning
     ignore:events_as_annotations defaults to False.*:FutureWarning
     always::ResourceWarning
@@ -47,15 +40,6 @@ def pytest_configure(config):
         warning_line = warning_line.strip()
         if warning_line and not warning_line.startswith('#'):
             config.addinivalue_line('filterwarnings', warning_line)
-
-
-@pytest.fixture(scope='session')
-def traits_test():
-    """Context to raise errors in trait handlers."""
-    from traits.api import push_exception_handler
-    push_exception_handler(reraise_exceptions=True)
-    yield
-    push_exception_handler(reraise_exceptions=False)
 
 
 @pytest.fixture(scope='function', params=[testing._pytest_param()])

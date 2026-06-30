@@ -60,5 +60,5 @@ def test_mri_model(subjects_dir_tmp):
     # after changing from file model should be able to reset
     model.nasion = [[1, 1, 1]]
     assert model.can_reset
-    model.reset = True
+    model.reset_fiducials()
     assert_array_equal(model.nasion, [[0, 1, 0]])
