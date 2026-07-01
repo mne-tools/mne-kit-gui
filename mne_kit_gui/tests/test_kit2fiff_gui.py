@@ -18,6 +18,7 @@ from qtpy.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QRadioButton,
 )
 
 import mne
@@ -359,6 +360,36 @@ def test_kit2fiff_gui(
         pass
     assert frame.model.stim_threshold == 10.0
     assert frame.model.stim_chs == "save this!"
+    # the Event widgets must reflect the restored config, not just the model
+    assert find_child(frame, QDoubleSpinBox, "stim_threshold").value() == 10.0
+    assert frame._stim_chs_edit.text() == "save this!"
+
+    # Event Onset / Value Coding / New Marker method radios drive their model
+    # trait, and a model change syncs the radios back (default_name is the
+    # restored/default selection; on_name/on_val is what clicking it sets).
+    for obj, attr, default_name, on_name, on_val in (
+        (frame.model, "stim_slope", "stim_slope_trough", "stim_slope_peak", "+"),
+        (
+            frame.model,
+            "stim_coding",
+            "stim_coding_little",
+            "stim_coding_channel",
+            "channel",
+        ),  # noqa: E501
+        (
+            frame.model.markers.mrk3,
+            "method",
+            "mrk3_method_transform",
+            "mrk3_method_average",
+            "Average",
+        ),  # noqa: E501
+    ):
+        default_val = getattr(obj, attr)
+        assert find_child(frame, QRadioButton, default_name).isChecked()
+        find_child(frame, QRadioButton, on_name).setChecked(True)
+        assert getattr(obj, attr) == on_val
+        setattr(obj, attr, default_val)  # model change syncs the radios back
+        assert find_child(frame, QRadioButton, default_name).isChecked()
 
     # set and reset marker file
     points = [

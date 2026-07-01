@@ -15,11 +15,12 @@ import numpy as np
 from pyvistaqt import QtInteractor  # ty: ignore[unresolved-import]
 
 from qtpy.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QColorDialog,
-    QComboBox,
     QDoubleSpinBox,
     QFileDialog,
+    QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -28,6 +29,7 @@ from qtpy.QtWidgets import (
     QMessageBox,
     QProgressDialog,
     QPushButton,
+    QRadioButton,
     QVBoxLayout,
     QWidget,
 )
@@ -773,17 +775,19 @@ class Kit2FiffFrame(QMainWindow):
         self.setCentralWidget(central)
         outer = QHBoxLayout(central)
 
+        # Column stretch mirrors the original mayavi layout: wide marker /
+        # kit2fiff panels flanking a comparatively narrow 3D scene.
         # ---- left column: marker panel ----
-        outer.addLayout(self._build_marker_column(), stretch=1)
+        outer.addLayout(self._build_marker_column(), stretch=2)
 
         # ---- center: scene + head view controls ----
         center = QVBoxLayout()
         center.addWidget(self._scene_widget, stretch=4)
         center.addWidget(build_head_view_group(self.headview))
-        outer.addLayout(center, stretch=2)
+        outer.addLayout(center, stretch=1)
 
         # ---- right column: kit2fiff panel ----
-        outer.addLayout(self._build_kit2fiff_column(), stretch=1)
+        outer.addLayout(self._build_kit2fiff_column(), stretch=2)
 
     def _build_marker_column(self) -> QVBoxLayout:
         layout = QVBoxLayout()
@@ -802,9 +806,10 @@ class Kit2FiffFrame(QMainWindow):
         )
 
         g3 = QGroupBox("Stats")
-        g3_layout = QVBoxLayout(g3)
+        g3_layout = QHBoxLayout(g3)
+        g3_layout.addWidget(QLabel("Distance:"))
         self._distance_label = QLabel("")
-        g3_layout.addWidget(self._distance_label)
+        g3_layout.addWidget(self._distance_label, stretch=1)
         markers.observe(
             lambda ch: self._distance_label.setText(ch["new"]), names=["distance"]
         )
@@ -812,13 +817,31 @@ class Kit2FiffFrame(QMainWindow):
 
         g4 = QGroupBox("New Marker")
         g4_layout = QVBoxLayout(g4)
-        method_combo = QComboBox()
-        method_combo.addItems(["Transform", "Average"])
-        method_combo.currentTextChanged.connect(
-            lambda t: setattr(markers.mrk3, "method", t)
-        )
-        g4_layout.addWidget(method_combo)
-        save3 = QPushButton("Save As...")
+        # "Method" as a pair of radio buttons, matching the original mayavi GUI
+        method_row = QHBoxLayout()
+        method_row.addWidget(QLabel("Method:"))
+        method_group = QButtonGroup(g4)
+        for text in ("Transform", "Average"):
+            rb = QRadioButton(text)
+            rb.setObjectName("mrk3_method_%s" % text.lower())
+            rb.setChecked(markers.mrk3.method == text)
+            rb.toggled.connect(
+                lambda checked, t=text: (
+                    setattr(markers.mrk3, "method", t) if checked else None
+                )
+            )
+            method_group.addButton(rb)
+            method_row.addWidget(rb)
+        method_row.addStretch()
+
+        def _sync_method(change: Bunch) -> None:
+            for rb in method_group.buttons():
+                rb.setChecked(rb.text() == change["new"])
+
+        markers.mrk3.observe(_sync_method, names=["method"])
+        g4_layout.addLayout(method_row)
+
+        save3 = QPushButton("Save as")
         save3.setObjectName("mrk3_save")
         save3.clicked.connect(lambda *_: markers.mrk3.save_as())
         save3.setEnabled(markers.mrk3.can_save)
@@ -909,9 +932,9 @@ class Kit2FiffFrame(QMainWindow):
         for key, label, handler in (
             ("clear", "Clear", mrk.clear),
             ("edit", "Edit", mrk.edit),
-            ("switch", "Switch L/R", mrk.switch_left_right),
+            ("switch", "Switch Left/Right", mrk.switch_left_right),
             ("reorder", "Reorder", mrk.reorder),
-            ("save", "Save As...", mrk.save_as),
+            ("save", "Save as", mrk.save_as),
         ):
             btn = QPushButton(label)
             btn.setObjectName("%s_%s" % (name, key))
@@ -964,6 +987,14 @@ class Kit2FiffFrame(QMainWindow):
         row.addWidget(label)
 
         return row
+
+    @staticmethod
+    def _select_radio(group: QButtonGroup, obj_name: str) -> None:
+        """Check the radio in ``group`` with the given objectName, if not already."""
+        for rb in group.buttons():
+            if rb.objectName() == obj_name and not rb.isChecked():
+                rb.setChecked(True)
+                break
 
     @staticmethod
     def _set_color_swatch(button: QPushButton, color: Sequence[float]) -> None:
@@ -1033,7 +1064,7 @@ class Kit2FiffFrame(QMainWindow):
                 lambda p: setattr(self.model, "hsp_file", p),
             )
         )
-        row2.addWidget(QLabel("HSP:"))
+        row2.addWidget(QLabel("Digitizer\nHead Shape:"))
         row2.addWidget(self._hsp_edit)
         row2.addWidget(hsp_btn)
         sg_layout.addLayout(row2)
@@ -1052,7 +1083,7 @@ class Kit2FiffFrame(QMainWindow):
                 lambda p: setattr(self.model, "fid_file", p),
             )
         )
-        row3.addWidget(QLabel("FID:"))
+        row3.addWidget(QLabel("Digitizer\nFiducials:"))
         row3.addWidget(self._fid_edit)
         row3.addWidget(fid_btn)
         sg_layout.addLayout(row3)
@@ -1084,47 +1115,91 @@ class Kit2FiffFrame(QMainWindow):
         sg_layout.addLayout(use_row)
         layout.addWidget(sg)
 
-        # Events group
+        # Events group -- label-left form layout matching the original mayavi GUI
         eg = QGroupBox("Events")
-        eg_layout = QVBoxLayout(eg)
+        eg_form = QFormLayout(eg)
+        eg_form.setLabelAlignment(Qt.AlignRight)  # ty: ignore[unresolved-attribute]
+        eg_form.setFieldGrowthPolicy(
+            QFormLayout.AllNonFixedFieldsGrow  # ty: ignore[unresolved-attribute]
+        )
+
         self._misc_chs_label = QLabel("No SQD file selected...")
-        eg_layout.addWidget(self._misc_chs_label)
+        eg_form.addRow("MISC Channels:", self._misc_chs_label)
 
-        slope_combo = QComboBox()
-        slope_combo.addItems(["- (Trough: 5→0 V)", "+ (Peak: 0→5 V)"])
-        slope_combo.currentIndexChanged.connect(
-            lambda i: setattr(self.model, "stim_slope", "-" if i == 0 else "+")
+        # Event onset: trough (falling, "-") vs peak (rising, "+")
+        self._slope_group = QButtonGroup(eg)
+        slope_row = QHBoxLayout()
+        for text, slope, tag in (
+            ("Trough (5 to 0 V)", "-", "trough"),
+            ("Peak (0 to 5 V)", "+", "peak"),
+        ):
+            rb = QRadioButton(text)
+            rb.setObjectName("stim_slope_%s" % tag)
+            rb.setChecked(self.model.stim_slope == slope)
+            rb.toggled.connect(
+                lambda checked, s=slope: (
+                    setattr(self.model, "stim_slope", s) if checked else None
+                )
+            )
+            self._slope_group.addButton(rb)
+            slope_row.addWidget(rb)
+        slope_row.addStretch()
+        eg_form.addRow("Event Onset:", slope_row)
+        self.model.observe(
+            lambda ch: self._select_radio(
+                self._slope_group,
+                "stim_slope_%s" % {"-": "trough", "+": "peak"}[ch["new"]],
+            ),
+            names=["stim_slope"],
         )
-        eg_layout.addWidget(QLabel("Event Onset:"))
-        eg_layout.addWidget(slope_combo)
 
-        coding_combo = QComboBox()
-        coding_combo.addItems(["little-endian (>)", "big-endian (<)", "Channel#"])
-        coding_combo.currentIndexChanged.connect(
-            lambda i: setattr(self.model, "stim_coding", [">", "<", "channel"][i])
+        # Value coding: binary little-/big-endian, or per-channel
+        self._coding_group = QButtonGroup(eg)
+        coding_row = QHBoxLayout()
+        for text, code, tag in (
+            ("Little-endian", ">", "little"),
+            ("Big-endian", "<", "big"),
+            ("Channel#", "channel", "channel"),
+        ):
+            rb = QRadioButton(text)
+            rb.setObjectName("stim_coding_%s" % tag)
+            rb.setChecked(self.model.stim_coding == code)
+            rb.toggled.connect(
+                lambda checked, c=code: (
+                    setattr(self.model, "stim_coding", c) if checked else None
+                )
+            )
+            self._coding_group.addButton(rb)
+            coding_row.addWidget(rb)
+        coding_row.addStretch()
+        eg_form.addRow("Value Coding:", coding_row)
+        self.model.observe(
+            lambda ch: self._select_radio(
+                self._coding_group,
+                "stim_coding_%s"
+                % {">": "little", "<": "big", "channel": "channel"}[ch["new"]],
+            ),
+            names=["stim_coding"],
         )
-        eg_layout.addWidget(QLabel("Value Coding:"))
-        eg_layout.addWidget(coding_combo)
 
-        self._stim_chs_edit = QLineEdit()
+        self._stim_chs_edit = QLineEdit(self.model.stim_chs)
         self._stim_chs_edit.setPlaceholderText("Default (first 8 MISC)")
         self._stim_chs_edit.editingFinished.connect(
             lambda: setattr(self.model, "stim_chs", self._stim_chs_edit.text())
         )
-        eg_layout.addWidget(QLabel("Channels:"))
-        eg_layout.addWidget(self._stim_chs_edit)
+        eg_form.addRow("Channels:", self._stim_chs_edit)
 
         self._stim_comment_label = QLabel("")
-        eg_layout.addWidget(self._stim_comment_label)
+        eg_form.addRow("", self._stim_comment_label)
 
         thr_spin = QDoubleSpinBox()
+        thr_spin.setObjectName("stim_threshold")
         thr_spin.setRange(0, 100)
-        thr_spin.setValue(1.0)
+        thr_spin.setValue(self.model.stim_threshold)
         thr_spin.valueChanged.connect(
             lambda v: setattr(self.model, "stim_threshold", v)
         )
-        eg_layout.addWidget(QLabel("Threshold:"))
-        eg_layout.addWidget(thr_spin)
+        eg_form.addRow("Threshold:", thr_spin)
 
         btn_row = QHBoxLayout()
         self._test_stim_btn = QPushButton("Find Events")
@@ -1135,7 +1210,7 @@ class Kit2FiffFrame(QMainWindow):
         )
         btn_row.addWidget(self._test_stim_btn)
         btn_row.addWidget(self._plot_raw_btn)
-        eg_layout.addLayout(btn_row)
+        eg_form.addRow(btn_row)
         layout.addWidget(eg)
 
         # Save/clear row
