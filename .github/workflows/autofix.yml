@@ -55,5 +55,5 @@ jobs:
           git checkout -b $BRANCH
           git commit -am "mne[bot]: Update prek"
           git push origin $BRANCH
-          PR_NUM=$(gh pr create --base main --head $BRANCH --title "Update prek" --body "Created by [GitHub action](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${{ github.run_id }}).")
-          echo "Opened https://github.com/${GITHUB_REPOSITORY}/pull/${PR_NUM}" >> $GITHUB_STEP_SUMMARY
+          PR_NUM=$(gh pr create --base main --head $BRANCH --title "Update prek" --body "Created by [GitHub action](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}).")
+          echo "Opened https://github.com/${{ github.repository }}/pull/${PR_NUM}" >> $GITHUB_STEP_SUMMARY
