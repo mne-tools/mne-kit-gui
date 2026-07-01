@@ -5,7 +5,6 @@
 #
 # License: BSD-3-Clause
 
-import sys
 import os
 import os.path as op
 
