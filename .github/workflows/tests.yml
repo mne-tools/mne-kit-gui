@@ -41,9 +41,6 @@ jobs:
         with:
           fetch-depth: 0
       - uses: pyvista/setup-headless-display-action@main
-      - uses: mamba-org/setup-micromamba@v3
-        timeout-minutes: 8
-      - uses: pyvista/setup-headless-display-action@main
         with:
           qt: true
           pyvista: false
@@ -55,7 +52,7 @@ jobs:
         if: matrix.kind == 'dev'
       - run: mne sys_info -p
       - run: python -c "import mne; mne.datasets.testing.data_path(verbose=True)"
-      - run: python -c "import mne; import time; brain = mne.viz.Brain('fsaverage', surf='white', subjects_dir=mne.datasets.testing.data_path(verbose=True) / 'subjects'); brain.close(); time.sleep(0.5)"
+      - run: python -c "import mne; brain = mne.viz.Brain('fsaverage', surf='white', subjects_dir=mne.datasets.testing.data_path(verbose=True) / 'subjects'); brain.close()"
       - run: pytest --tb=short --cov --cov-report=xml --cov-report=html -vvv mne_kit_gui
       - uses: codecov/codecov-action@v7
         with:
