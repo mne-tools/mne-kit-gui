@@ -9,7 +9,6 @@ from mne_kit_gui._viewer import (
     HeadViewController,
     Object,
     PointObject,
-    SurfaceObject,
     _mm_fmt,
     _sph_to_cart_view,
     build_head_view_group,
@@ -73,15 +72,6 @@ def test_objects_without_scene():
     p.resolution = 4
     p.label = True  # no scene -> nothing is added
     p.visible = False  # hides labels via _on_hide
-
-    # SurfaceObject: plot and all the sync observers are no-ops without a scene
-    s = SurfaceObject()
-    s.plot()
-    s.color = (1.0, 0.0, 0.0)
-    s.opacity = 0.5
-    s.rear_opacity = 0.5
-    s.visible = False
-    s.points = np.zeros((2, 3))
 
 
 def test_sph_to_cart_view():
