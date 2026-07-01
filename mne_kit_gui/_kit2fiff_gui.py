@@ -132,14 +132,12 @@ class Kit2FiffModel(HasTraits):
         if "use_mrk" not in kwargs:
             kwargs["use_mrk"] = list(range(5))
         super().__init__(**kwargs)
-        empty = np.empty((0, 3))
-        eye = np.eye(4)
         self.mrk = np.zeros((5, 3))
-        self.elp = empty
-        self.fid = empty
-        self.hsp = empty
-        self.dev_head_trans = eye
-        self.head_dev_trans = eye
+        self.elp = np.empty((0, 3))
+        self.fid = np.empty((0, 3))
+        self.hsp = np.empty((0, 3))
+        self.dev_head_trans = np.eye(4)
+        self.head_dev_trans = np.eye(4)
         self.markers.parent = self.parent
         # Wire markers
         self.markers.mrk3.observe(self._mrk3_points_changed, names=["points"])
@@ -259,12 +257,11 @@ class Kit2FiffModel(HasTraits):
         self._recompute_elp_fid()
 
     def _recompute_elp_fid(self):
-        empty = np.empty((0, 3))
         elp_raw = self.elp_raw
         trans = self.polhemus_neuromag_trans
         if elp_raw is None or trans is None:
-            self.elp = empty
-            self.fid = empty
+            self.elp = np.empty((0, 3))
+            self.fid = np.empty((0, 3))
         else:
             self.elp = apply_trans(trans, elp_raw[3:8])
             self.fid = apply_trans(trans, elp_raw[:3])

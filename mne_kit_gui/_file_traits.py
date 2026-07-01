@@ -292,17 +292,15 @@ class DigSource(HasTraits):
         self._reset_derived()
 
     def _reset_derived(self):
-        empty = np.empty((0, 3))
-        zeros = np.zeros((1, 3))
         self._info = None
         self.inst_fname = "-"
         self.inst_dir = ""
-        self._hsp_points = empty
-        self.points = empty
-        self.lpa = zeros
-        self.nasion = zeros
-        self.rpa = zeros
-        self.eeg_points = empty
+        self._hsp_points = np.empty((0, 3))
+        self.points = np.empty((0, 3))
+        self.lpa = np.zeros((1, 3))
+        self.nasion = np.zeros((1, 3))
+        self.rpa = np.zeros((1, 3))
+        self.eeg_points = np.empty((0, 3))
         self.hpi_points = np.zeros((0, 3))
         self.n_omitted = 0
 
@@ -373,20 +371,18 @@ class DigSource(HasTraits):
 
     def _update_from_info(self):
         info = self._info
-        empty = np.empty((0, 3))
-        zeros = np.zeros((1, 3))
 
         if not info or not info["dig"]:
-            self._hsp_points = empty
-            self.lpa = zeros
-            self.nasion = zeros
-            self.rpa = zeros
-            self.eeg_points = empty
+            self._hsp_points = np.empty((0, 3))
+            self.lpa = np.zeros((1, 3))
+            self.nasion = np.zeros((1, 3))
+            self.rpa = np.zeros((1, 3))
+            self.eeg_points = np.empty((0, 3))
             self.hpi_points = np.zeros((0, 3))
         else:
             dig = info["dig"]
             hsp = np.array([d["r"] for d in dig if d["kind"] == FIFF.FIFFV_POINT_EXTRA])
-            self._hsp_points = hsp if len(hsp) else empty
+            self._hsp_points = hsp if len(hsp) else np.empty((0, 3))
 
             self.lpa = self._cardinal_point(FIFF.FIFFV_POINT_LPA)
             self.nasion = self._cardinal_point(FIFF.FIFFV_POINT_NASION)
@@ -398,7 +394,7 @@ class DigSource(HasTraits):
                 if d["kind"] == FIFF.FIFFV_POINT_EEG
                 and d["coord_frame"] == FIFF.FIFFV_COORD_HEAD
             ]
-            self.eeg_points = np.array(eeg) if eeg else empty
+            self.eeg_points = np.array(eeg) if eeg else np.empty((0, 3))
 
             hpi = [
                 d["r"]
