@@ -4,11 +4,25 @@
 # License: BSD-3-Clause
 
 import gc
+from collections.abc import Iterator
+from typing import Protocol, TypeVar
 
 import pytest
 
+from qtpy.QtCore import QObject
 
-def pytest_configure(config):
+_T = TypeVar("_T", bound=QObject)
+
+
+class FindChild(Protocol):
+    """Callable returned by the :func:`find_child` fixture."""
+
+    def __call__(self, parent: QObject, kind: type[_T], name: str) -> _T:
+        """Return ``parent``'s named child of ``kind``, asserting it exists."""
+        ...
+
+
+def pytest_configure(config: pytest.Config) -> None:
     """Configure pytest options."""
     warning_lines = r"""
     error::
@@ -39,7 +53,7 @@ def pytest_configure(config):
 
 
 @pytest.fixture(autouse=True)
-def _qapp(qtbot):
+def _qapp(qtbot) -> Iterator[None]:
     """Ensure a QApplication exists for every test.
 
     Many objects create Qt widgets (e.g. a QProgressDialog) even when no GUI is
@@ -50,8 +64,25 @@ def _qapp(qtbot):
 
 
 @pytest.fixture
-def check_gc(qtbot):
+def check_gc(qtbot) -> Iterator[None]:
     """Check that things are garbage collected after closing a GUI."""
     yield
     qtbot.wait(200)  # wait for the close to finish
     gc.collect()
+
+
+@pytest.fixture
+def find_child() -> FindChild:
+    """Return a helper that looks up a named child widget.
+
+    ``QObject.findChild`` is typed as returning ``kind | None``; this wraps it
+    with an assertion so tests fail fast (and stay type-clean) when a widget
+    with the given object name is missing.
+    """
+
+    def _find_child(parent: QObject, kind: type[_T], name: str) -> _T:
+        child = parent.findChild(kind, name)
+        assert child is not None, f"no {kind.__name__} named {name!r}"
+        return child
+
+    return _find_child

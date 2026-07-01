@@ -127,3 +127,7 @@ mne_kit_gui = ["help/*.json"]
 include = ["mne_kit_gui*"]
 
 [tool.setuptools_scm]
+
+[tool.ty.environment]
+# check against the minimum supported interpreter (see requires-python)
+python-version = "3.11"

@@ -6,7 +6,7 @@ from pathlib import Path
 from textwrap import TextWrapper
 
 
-def read_tooltips(gui_name):
+def read_tooltips(gui_name: str) -> dict[str, str]:
     """Read and format tooltips, return a dict."""
     help_path = Path(__file__).parent / "help" / (gui_name + ".json")
     with open(help_path) as fid:

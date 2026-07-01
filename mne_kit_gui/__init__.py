@@ -8,6 +8,8 @@ from importlib.metadata import version
 
 from mne.viz.backends._utils import _init_mne_qtapp, _qt_app_exec
 
+from ._kit2fiff_gui import Kit2FiffFrame
+
 try:
     __version__ = version("mne-kit-gui")
 except Exception:
@@ -15,7 +17,7 @@ except Exception:
 del version
 
 
-def fiducials(*args, **kwargs):
+def fiducials(*args, **kwargs) -> None:
     """Set the fiducials for an MRI subject (removed).
 
     .. deprecated::
@@ -29,7 +31,7 @@ def fiducials(*args, **kwargs):
     )
 
 
-def kit2fiff(*, block=True):
+def kit2fiff(*, block: bool = True) -> Kit2FiffFrame:
     """Convert KIT files to the fiff format.
 
     The recommended way to use the GUI is through bash with::
@@ -48,8 +50,6 @@ def kit2fiff(*, block=True):
     frame : instance of Kit2FiffFrame
         The GUI frame.
     """
-    from ._kit2fiff_gui import Kit2FiffFrame
-
     app = _init_mne_qtapp()
     frame = Kit2FiffFrame()
     frame.show()

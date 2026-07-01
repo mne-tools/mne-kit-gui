@@ -8,6 +8,7 @@ import datetime
 from pathlib import Path
 
 import numpy as np
+from pyvistaqt import QtInteractor  # ty: ignore[unresolved-import]
 
 from qtpy.QtWidgets import (
     QDialog,
@@ -19,9 +20,10 @@ from qtpy.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QVBoxLayout,
+    QWidget,
 )
 
-from traitlets import Bool, Float, HasTraits, Any, List, Unicode, observe
+from traitlets import Bool, Bunch, Float, HasTraits, Any, List, Unicode, observe
 
 from mne.transforms import apply_trans, rotation, translation
 from mne.coreg import fit_matched_points
@@ -43,7 +45,7 @@ out_ext = ".txt"
 class ReorderDialog(QDialog):
     """Dialog for entering a new marker point order."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Reorder Marker Points")
         layout = QVBoxLayout(self)
@@ -51,13 +53,14 @@ class ReorderDialog(QDialog):
         self._edit = QLineEdit("0 1 2 3 4")
         layout.addWidget(self._edit)
         buttons = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=self
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel,  # ty: ignore[unresolved-attribute]
+            parent=self,
         )
         buttons.accepted.connect(self._try_accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
-    def _try_accept(self):
+    def _try_accept(self) -> None:
         if self.index is not None:
             self.accept()
         else:
@@ -66,7 +69,7 @@ class ReorderDialog(QDialog):
             )
 
     @property
-    def index(self):
+    def index(self) -> list[int] | None:
         try:
             idx = [int(i) for i in self._edit.text().split()]
         except ValueError:
@@ -79,14 +82,14 @@ class ReorderDialog(QDialog):
 class EditPointsDialog(QDialog):
     """Dialog for manually editing the five marker point coordinates."""
 
-    def __init__(self, points, parent=None):
+    def __init__(self, points: np.ndarray, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Edit Marker Points")
         layout = QVBoxLayout(self)
         grid = QGridLayout()
         for col, head in enumerate(("x", "y", "z")):
             grid.addWidget(QLabel(head), 0, col + 1)
-        self._spins = []
+        self._spins: list[list[QDoubleSpinBox]] = []
         for r in range(5):
             grid.addWidget(QLabel(str(r)), r + 1, 0)
             row = []
@@ -101,14 +104,15 @@ class EditPointsDialog(QDialog):
             self._spins.append(row)
         layout.addLayout(grid)
         buttons = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=self
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel,  # ty: ignore[unresolved-attribute]
+            parent=self,
         )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
     @property
-    def points(self):
+    def points(self) -> np.ndarray:
         """The edited points as an (5, 3) array."""
         return np.array([[spin.value() for spin in row] for row in self._spins], float)
 
@@ -123,17 +127,17 @@ class MarkerPoints(HasTraits):
 
     can_save = Bool()
 
-    def __init__(self, *, points=None):
+    def __init__(self, *, points: np.ndarray | None = None) -> None:
         if points is None:
             points = np.zeros((5, 3))
         super().__init__(points=points)
 
     @observe("points")
-    def _points_changed(self, change):
+    def _points_changed(self, change: Bunch) -> None:
         pts = change["new"]
         self.can_save = bool(pts is not None and np.any(pts))
 
-    def save_as(self):
+    def save_as(self) -> None:
         """Prompt user for a save path and save the marker points."""
         parent = self.parent
         path, _ = QFileDialog.getSaveFileName(
@@ -152,11 +156,11 @@ class MarkerPoints(HasTraits):
                 "Overwrite File?",
                 "The file %r already exists. Should it be replaced?" % str(path),
             )
-            if reply != QMessageBox.Yes:
+            if reply != QMessageBox.Yes:  # ty: ignore[unresolved-attribute]
                 return
         self.save(path)
 
-    def save(self, path):
+    def save(self, path: str | Path) -> None:
         """Save the marker points.
 
         Parameters
@@ -174,12 +178,12 @@ class MarkerPointSource(MarkerPoints):  # noqa: D401
     use = List()  # list of ints 0-4
     enabled = Bool()
 
-    def __init__(self, *, use=None):
+    def __init__(self, *, use: list[int] | None = None) -> None:
         super().__init__()
         self.use = use if use is not None else list(range(5))
 
     @observe("file")
-    def _file_changed(self, change):
+    def _file_changed(self, change: Bunch) -> None:
         fname = change["new"]
         if fname:
             path = Path(fname)
@@ -190,7 +194,7 @@ class MarkerPointSource(MarkerPoints):  # noqa: D401
             self.dir = ""
         self._load(fname)
 
-    def _load(self, fname):
+    def _load(self, fname: str) -> None:
         if not fname:
             self.points = np.zeros((5, 3))
             return
@@ -203,28 +207,28 @@ class MarkerPointSource(MarkerPoints):  # noqa: D401
             self.points = pts
 
     @observe("points", "use")
-    def _update_enabled(self, change):
+    def _update_enabled(self, change: Bunch) -> None:
         self.enabled = bool(np.any(self.points))
 
-    def clear(self):
+    def clear(self) -> None:
         """Clear all marker data."""
         self.file = ""
         self.points = np.zeros((5, 3))
         self.use = list(range(5))
 
-    def edit(self):
+    def edit(self) -> None:
         """Open a dialog for manual coordinate entry."""
         dlg = EditPointsDialog(self.points, self.parent)
-        if dlg.exec_() == QDialog.Accepted:
+        if dlg.exec_() == QDialog.Accepted:  # ty: ignore[unresolved-attribute]
             self.points = dlg.points
 
-    def reorder(self):
+    def reorder(self) -> None:
         """Prompt for a new point order and apply it."""
         dlg = ReorderDialog(self.parent)
-        if dlg.exec_() == QDialog.Accepted and dlg.index is not None:
+        if dlg.exec_() == QDialog.Accepted and dlg.index is not None:  # ty: ignore[unresolved-attribute]
             self.points = self.points[dlg.index]
 
-    def switch_left_right(self):
+    def switch_left_right(self) -> None:
         """Swap left and right marker points."""
         self.points = self.points[[1, 0, 2, 4, 3]]
 
@@ -237,13 +241,18 @@ class MarkerPointDest(MarkerPoints):  # noqa: D401
     method = Unicode("Transform")
     enabled = Bool()
 
-    def __init__(self, *, src1=None, src2=None):
+    def __init__(
+        self,
+        *,
+        src1: MarkerPointSource | None = None,
+        src2: MarkerPointSource | None = None,
+    ) -> None:
         super().__init__()
         self.src1 = src1
         self.src2 = src2
 
     @observe("src1")
-    def _src1_changed(self, change):
+    def _src1_changed(self, change: Bunch) -> None:
         old = change["old"]
         new = change["new"]
         if old is not None:
@@ -259,7 +268,7 @@ class MarkerPointDest(MarkerPoints):  # noqa: D401
         self._recompute()
 
     @observe("src2")
-    def _src2_changed(self, change):
+    def _src2_changed(self, change: Bunch) -> None:
         old = change["old"]
         new = change["new"]
         if old is not None:
@@ -274,14 +283,14 @@ class MarkerPointDest(MarkerPoints):  # noqa: D401
             )
         self._recompute()
 
-    def _src_attr_changed(self, change):
+    def _src_attr_changed(self, change: Bunch) -> None:
         """React to any change on src1 or src2."""
         if change["name"] in ("name", "dir"):
             self._update_name_dir()
         else:
             self._recompute()
 
-    def _update_name_dir(self):
+    def _update_name_dir(self) -> None:
         n1 = self.src1.name if self.src1 else ""
         n2 = self.src2.name if self.src2 else ""
         self.dir = self.src1.dir if self.src1 else ""
@@ -299,14 +308,14 @@ class MarkerPointDest(MarkerPoints):  # noqa: D401
             self.name = n1[:i]
 
     @observe("method")
-    def _method_changed(self, change):
+    def _method_changed(self, change: Bunch) -> None:
         self._recompute()
 
-    def _recompute(self):
+    def _recompute(self) -> None:
         self.points = self._compute_points()
         self.enabled = bool(self.points is not None and np.any(self.points))
 
-    def _compute_points(self):
+    def _compute_points(self) -> np.ndarray:
         src1, src2 = self.src1, self.src2
 
         if not (src1 and src1.enabled):
@@ -320,7 +329,9 @@ class MarkerPointDest(MarkerPoints):  # noqa: D401
             return self._compute_points_average(src1, src2)
         return self._compute_points_transform(src1, src2)
 
-    def _compute_points_average(self, src1, src2):
+    def _compute_points_average(
+        self, src1: MarkerPointSource, src2: MarkerPointSource
+    ) -> np.ndarray:
         if len(np.union1d(src1.use, src2.use)) < 5:
             QMessageBox.critical(
                 self.parent,
@@ -335,7 +346,9 @@ class MarkerPointDest(MarkerPoints):  # noqa: D401
             pts[i] = src2.points[i]
         return pts
 
-    def _compute_points_transform(self, src1, src2):
+    def _compute_points_transform(
+        self, src1: MarkerPointSource, src2: MarkerPointSource
+    ) -> np.ndarray:
         idx = np.intersect1d(np.array(src1.use), np.array(src2.use), assume_unique=True)
         if len(idx) < 3:
             QMessageBox.critical(
@@ -375,7 +388,7 @@ class CombineMarkersModel(HasTraits):
     distance = Unicode()
     parent = Any()  # QWidget | None, for parenting dialogs
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         if self.mrk1 is None:
             self.mrk1 = MarkerPointSource()
@@ -389,18 +402,18 @@ class CombineMarkersModel(HasTraits):
         self.mrk2.observe(self._update_distance, names=["points"])
 
     @observe("parent")
-    def _parent_changed(self, change):
+    def _parent_changed(self, change: Bunch) -> None:
         for sub_model in (self.mrk1, self.mrk2, self.mrk3):
             sub_model.parent = change["new"]
 
-    def _update_distance(self, change=None):
+    def _update_distance(self, change: Bunch | None = None) -> None:
         if not np.any(self.mrk1.points) or not np.any(self.mrk2.points):
             self.distance = ""
             return
         ds = np.sqrt(np.sum((self.mrk1.points - self.mrk2.points) ** 2, 1))
         self.distance = "\t".join("%.1f mm" % (d * 1000) for d in ds)
 
-    def clear(self):
+    def clear(self) -> None:
         """Clear all marker data."""
         self.mrk1.clear()
         self.mrk2.clear()
@@ -427,7 +440,14 @@ class CombineMarkersPanel(HasTraits):  # noqa: D401
     trans = Any()  # ndarray (4, 4)
     parent = Any()  # QWidget | None, for parenting dialogs
 
-    def __init__(self, *, scene=None, model=None, trans=None, parent=None):
+    def __init__(
+        self,
+        *,
+        scene: QtInteractor | None = None,
+        model: CombineMarkersModel | None = None,
+        trans: np.ndarray | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
         if model is None:
             model = CombineMarkersModel()
         if trans is None:
@@ -473,29 +493,29 @@ class CombineMarkersPanel(HasTraits):  # noqa: D401
         model.mrk3.observe(self._update_mrk3, names=["points"])
 
     @observe("trans")
-    def _trans_changed(self, change):
+    def _trans_changed(self, change: Bunch) -> None:
         self._update_mrk1()
         self._update_mrk2()
         self._update_mrk3()
 
     @observe("parent")
-    def _parent_changed(self, change):
+    def _parent_changed(self, change: Bunch) -> None:
         self.model.parent = change["new"]
 
-    def _update_mrk1(self, change=None):
+    def _update_mrk1(self, change: Bunch | None = None) -> None:
         if self.mrk1_obj is not None:
             self.mrk1_obj.points = apply_trans(self.trans, self.model.mrk1.points)
 
-    def _update_mrk2(self, change=None):
+    def _update_mrk2(self, change: Bunch | None = None) -> None:
         if self.mrk2_obj is not None:
             self.mrk2_obj.points = apply_trans(self.trans, self.model.mrk2.points)
 
-    def _update_mrk3(self, change=None):
+    def _update_mrk3(self, change: Bunch | None = None) -> None:
         if self.mrk3_obj is not None:
             self.mrk3_obj.points = apply_trans(self.trans, self.model.mrk3.points)
 
 
-def _write_dig_points(fname, dig_points):
+def _write_dig_points(fname: str | Path, dig_points: np.ndarray) -> None:
     """Write points to text file.
 
     Parameters
@@ -506,7 +526,7 @@ def _write_dig_points(fname, dig_points):
     dig_points : numpy.ndarray, shape (n_points, 3)
         Points.
     """
-    from mne import __version__
+    from mne import __version__  # ty: ignore[unresolved-import]
 
     ext = Path(fname).suffix
     dig_points = np.asarray(dig_points)

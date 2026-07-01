@@ -5,12 +5,14 @@
 # License: BSD-3-Clause
 
 from collections import Counter
+from collections.abc import Callable, Sequence
 import os
 import queue
 from pathlib import Path
 from threading import Thread
 
 import numpy as np
+from pyvistaqt import QtInteractor  # ty: ignore[unresolved-import]
 
 from qtpy.QtWidgets import (
     QCheckBox,
@@ -24,14 +26,15 @@ from qtpy.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QMessageBox,
+    QProgressDialog,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 from qtpy.QtCore import Qt
-from qtpy.QtGui import QColor
+from qtpy.QtGui import QCloseEvent, QColor
 
-from traitlets import Bool, Float, HasTraits, Any, Int, List, Unicode, observe
+from traitlets import Bool, Bunch, Float, HasTraits, Any, Int, List, Unicode, observe
 
 from mne.channels import make_dig_montage
 from mne.event import _find_events
@@ -53,7 +56,7 @@ from mne.transforms import (
 from mne.coreg import _decimate_points, fit_matched_points
 from mne.utils import get_config, set_config, logger, warn
 
-from ._marker_gui import CombineMarkersPanel, CombineMarkersModel
+from ._marker_gui import CombineMarkersPanel, CombineMarkersModel, MarkerPointSource
 from ._help import read_tooltips
 from ._viewer import (
     HeadViewController,
@@ -129,12 +132,12 @@ class Kit2FiffModel(HasTraits):
     def __init__(
         self,
         *,
-        stim_chs="",
-        stim_coding=">",
-        stim_slope="-",
-        stim_threshold=1.0,
-        show_gui=False,
-    ):
+        stim_chs: str = "",
+        stim_coding: str = ">",
+        stim_slope: str = "-",
+        stim_threshold: float = 1.0,
+        show_gui: bool = False,
+    ) -> None:
         super().__init__(
             markers=CombineMarkersModel(),
             use_mrk=list(range(5)),
@@ -157,25 +160,25 @@ class Kit2FiffModel(HasTraits):
         self._recompute_stim_chs_array()
 
     @observe("parent")
-    def _parent_changed(self, change):
+    def _parent_changed(self, change: Bunch) -> None:
         self.markers.parent = change["new"]
 
     # ------------------------------------------------------------------
     # Observers
     # ------------------------------------------------------------------
 
-    def _mrk3_points_changed(self, change):
+    def _mrk3_points_changed(self, change: Bunch) -> None:
         self.mrk = apply_trans(als_ras_trans, change["new"])
         self._recompute_dev_head_trans()
         self._update_can_save()
 
     @observe("sqd_file")
-    def _sqd_file_changed(self, change):
+    def _sqd_file_changed(self, change: Bunch) -> None:
         fname = change["new"]
         self.sqd_fname = Path(fname).name if fname else "-"
         self._recompute_raw()
 
-    def _recompute_raw(self):
+    def _recompute_raw(self) -> None:
         fname = self.sqd_file
         if not fname:
             self.raw = None
@@ -209,7 +212,7 @@ class Kit2FiffModel(HasTraits):
         self._recompute_stim_chs_array()
         self._update_can_save()
 
-    def _recompute_misc(self):
+    def _recompute_misc(self) -> None:
         raw = self.raw
         if raw is None:
             self.misc_chs = None
@@ -220,7 +223,7 @@ class Kit2FiffModel(HasTraits):
             chs = [
                 i
                 for i, ch in enumerate(raw.info["chs"])
-                if ch["kind"] == FIFF.FIFFV_MISC_CH
+                if ch["kind"] == FIFF.FIFFV_MISC_CH  # ty: ignore[unresolved-attribute]
             ]
             self.misc_chs = chs
             if not chs:
@@ -233,12 +236,12 @@ class Kit2FiffModel(HasTraits):
             self.misc_data = None  # load on demand
 
     @observe("fid_file")
-    def _fid_file_changed(self, change):
+    def _fid_file_changed(self, change: Bunch) -> None:
         fname = change["new"]
         self.fid_fname = Path(fname).name if fname else "-"
         self._recompute_elp_raw()
 
-    def _recompute_elp_raw(self):
+    def _recompute_elp_raw(self) -> None:
         fname = self.fid_file
         if not fname:
             self.elp_raw = None
@@ -258,7 +261,7 @@ class Kit2FiffModel(HasTraits):
                 self.elp_raw = pts
         self._recompute_polhemus_trans()
 
-    def _recompute_polhemus_trans(self):
+    def _recompute_polhemus_trans(self) -> None:
         elp_raw = self.elp_raw
         if elp_raw is None:
             self.polhemus_neuromag_trans = None
@@ -268,7 +271,7 @@ class Kit2FiffModel(HasTraits):
             self.polhemus_neuromag_trans = np.dot(trans, als_ras_trans)
         self._recompute_elp_fid()
 
-    def _recompute_elp_fid(self):
+    def _recompute_elp_fid(self) -> None:
         elp_raw = self.elp_raw
         trans = self.polhemus_neuromag_trans
         if elp_raw is None or trans is None:
@@ -282,12 +285,12 @@ class Kit2FiffModel(HasTraits):
         self._update_can_save()
 
     @observe("hsp_file")
-    def _hsp_file_changed(self, change):
+    def _hsp_file_changed(self, change: Bunch) -> None:
         fname = change["new"]
         self.hsp_fname = Path(fname).name if fname else "-"
         self._recompute_hsp_raw()
 
-    def _recompute_hsp_raw(self):
+    def _recompute_hsp_raw(self) -> None:
         fname = self.hsp_file
         if not fname:
             self.hsp_raw = None
@@ -295,12 +298,15 @@ class Kit2FiffModel(HasTraits):
             try:
                 pts = _read_dig_kit(fname)
                 n_pts = len(pts)
-                if n_pts > KIT.DIG_POINTS:
+                if n_pts > KIT.DIG_POINTS:  # ty: ignore[unresolved-attribute]
                     msg = (
                         "The selected head shape contains {n} points, "
                         "which is more than the recommended maximum "
                         "({rec}). The file will be automatically "
-                        "downsampled.".format(n=n_pts, rec=KIT.DIG_POINTS)
+                        "downsampled.".format(
+                            n=n_pts,
+                            rec=KIT.DIG_POINTS,  # ty: ignore[unresolved-attribute]
+                        )
                     )
                     if self.show_gui:
                         QMessageBox.information(
@@ -318,7 +324,7 @@ class Kit2FiffModel(HasTraits):
         self._recompute_hsp()
         self._update_can_save()
 
-    def _recompute_hsp(self):
+    def _recompute_hsp(self) -> None:
         hsp_raw = self.hsp_raw
         trans = self.polhemus_neuromag_trans
         if hsp_raw is None or trans is None:
@@ -327,11 +333,11 @@ class Kit2FiffModel(HasTraits):
             self.hsp = apply_trans(trans, hsp_raw)
 
     @observe("use_mrk")
-    def _use_mrk_changed(self, change):
+    def _use_mrk_changed(self, change: Bunch) -> None:
         self._recompute_dev_head_trans()
         self._update_can_save()
 
-    def _recompute_dev_head_trans(self):
+    def _recompute_dev_head_trans(self) -> None:
         mrk = self.mrk
         elp = self.elp
         if mrk is None or not np.any(elp):
@@ -363,10 +369,10 @@ class Kit2FiffModel(HasTraits):
         self.head_dev_trans = np.linalg.inv(trans)
 
     @observe("stim_chs", "stim_coding")
-    def _stim_params_changed(self, change):
+    def _stim_params_changed(self, change: Bunch) -> None:
         self._recompute_stim_chs_array()
 
-    def _recompute_stim_chs_array(self):
+    def _recompute_stim_chs_array(self) -> None:
         raw = self.raw
         if raw is None:
             self.stim_chs_array = None
@@ -401,7 +407,7 @@ class Kit2FiffModel(HasTraits):
         )
         self._update_can_save()
 
-    def _update_can_save(self):
+    def _update_can_save(self) -> None:
         if not self.stim_chs_ok:
             self.can_save = False
             return
@@ -417,7 +423,7 @@ class Kit2FiffModel(HasTraits):
         has_any = self.hsp_file or self.fid_file or np.any(self.mrk)
         self.can_save = not bool(has_any)
 
-    def clear_all(self):
+    def clear_all(self) -> None:
         """Clear all specified input parameters."""
         self.markers.clear()
         self.sqd_file = ""
@@ -425,7 +431,7 @@ class Kit2FiffModel(HasTraits):
         self.fid_file = ""
         self.use_mrk = list(range(5))
 
-    def get_misc_data(self):
+    def get_misc_data(self) -> np.ndarray | None:
         """Load misc channel data from the SQD file, with progress dialog."""
         if self.misc_data is not None:
             return self.misc_data
@@ -433,13 +439,16 @@ class Kit2FiffModel(HasTraits):
             return None
         parent = self.parent
 
-        from qtpy.QtWidgets import QProgressDialog
-
         prog = QProgressDialog(
-            "Loading stim channel data from SQD file ...", None, 0, 0, parent
+            # a None cancel-button label makes the dialog uncancelable
+            "Loading stim channel data from SQD file ...",
+            None,  # ty: ignore[invalid-argument-type]
+            0,
+            0,
+            parent,
         )
         prog.setWindowTitle("Loading SQD data...")
-        prog.setWindowModality(Qt.WindowModal)
+        prog.setWindowModality(Qt.WindowModal)  # ty: ignore[unresolved-attribute]
         prog.setMinimumDuration(0)
         prog.show()
         try:
@@ -457,7 +466,7 @@ class Kit2FiffModel(HasTraits):
         self.misc_data = data
         return data
 
-    def get_event_info(self):
+    def get_event_info(self) -> Counter | None:
         """Count events with current stim channel settings."""
         data = self.get_misc_data()
         if data is None:
@@ -473,7 +482,7 @@ class Kit2FiffModel(HasTraits):
         )
         return Counter(events[:, 2])
 
-    def get_raw(self, preload=False):
+    def get_raw(self, preload: bool = False) -> RawKIT:
         """Create a raw object based on the current model settings."""
         if not self.can_save:
             raise ValueError("Not all necessary parameters are set")
@@ -510,7 +519,7 @@ class Kit2FiffModel(HasTraits):
         return raw
 
 
-def _load_model_config():
+def _load_model_config() -> Kit2FiffModel:
     """Load saved configuration values and return validated Kit2FiffModel."""
     config = get_config(home_dir=os.environ.get("_MNE_FAKE_HOME_DIR"))
     stim_threshold = 1.0
@@ -564,7 +573,12 @@ class Kit2FiffPanel(HasTraits):
     queue_current = Unicode()
     queue_len = Int(0)
 
-    def __init__(self, *, scene=None, model=None):
+    def __init__(
+        self,
+        *,
+        scene: QtInteractor | None = None,
+        model: Kit2FiffModel | None = None,
+    ) -> None:
         super().__init__(scene=scene, model=model)
         if self.queue is None:
             self.queue = queue.Queue()
@@ -581,7 +595,7 @@ class Kit2FiffPanel(HasTraits):
             name="ELP",
         )
         self.hsp_obj = PointObject(
-            scene=self.scene, color=(0.784,) * 3, point_scale=2e-3, name="HSP"
+            scene=self.scene, color=(0.784, 0.784, 0.784), point_scale=2e-3, name="HSP"
         )
 
         model = self.model
@@ -593,8 +607,8 @@ class Kit2FiffPanel(HasTraits):
             self._update_elp()
             self._update_hsp()
 
-    def _start_save_worker(self):
-        def worker():
+    def _start_save_worker(self) -> None:
+        def worker() -> None:
             while True:
                 raw, fname = self.queue.get()
                 basename = Path(fname).name
@@ -613,19 +627,19 @@ class Kit2FiffPanel(HasTraits):
         t = Thread(target=worker, daemon=True)
         t.start()
 
-    def _update_fid(self, change=None):
+    def _update_fid(self, change: Bunch | None = None) -> None:
         if self.fid_obj is not None and self.model is not None:
             self.fid_obj.points = apply_trans(self.model.head_dev_trans, self.model.fid)
 
-    def _update_hsp(self, change=None):
+    def _update_hsp(self, change: Bunch | None = None) -> None:
         if self.hsp_obj is not None and self.model is not None:
             self.hsp_obj.points = apply_trans(self.model.head_dev_trans, self.model.hsp)
 
-    def _update_elp(self, change=None):
+    def _update_elp(self, change: Bunch | None = None) -> None:
         if self.elp_obj is not None and self.model is not None:
             self.elp_obj.points = apply_trans(self.model.head_dev_trans, self.model.elp)
 
-    def save_as(self):
+    def save_as(self) -> None:
         """Prompt for a save path and queue the raw file for saving."""
         model = self.model
         parent = model.parent
@@ -655,13 +669,13 @@ class Kit2FiffPanel(HasTraits):
                 "Overwrite File?",
                 "The file %r already exists. Replace it?" % str(path),
             )
-            if reply != QMessageBox.Yes:
+            if reply != QMessageBox.Yes:  # ty: ignore[unresolved-attribute]
                 return
 
         self.queue.put((raw, path))
         self.queue_len += 1
 
-    def test_stim(self):
+    def test_stim(self) -> None:
         """Show a count of events with current stim settings."""
         parent = self.model.parent
         try:
@@ -690,10 +704,10 @@ class Kit2FiffPanel(HasTraits):
 class Kit2FiffFrame(QMainWindow):
     """Qt window for KIT to FIF conversion."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("KIT to FIFF Conversion")
-        self.setAttribute(Qt.WA_DeleteOnClose, True)
+        self.setAttribute(Qt.WA_DeleteOnClose, True)  # ty: ignore[unresolved-attribute]
         self.resize(1100, 700)
 
         self.model = _load_model_config()
@@ -754,7 +768,7 @@ class Kit2FiffFrame(QMainWindow):
     # UI construction
     # ------------------------------------------------------------------
 
-    def _build_ui(self):
+    def _build_ui(self) -> None:
         central = QWidget(self)
         self.setCentralWidget(central)
         outer = QHBoxLayout(central)
@@ -771,7 +785,7 @@ class Kit2FiffFrame(QMainWindow):
         # ---- right column: kit2fiff panel ----
         outer.addLayout(self._build_kit2fiff_column(), stretch=1)
 
-    def _build_marker_column(self):
+    def _build_marker_column(self) -> QVBoxLayout:
         layout = QVBoxLayout()
         markers = self.model.markers
         mp = self.marker_panel
@@ -814,7 +828,14 @@ class Kit2FiffFrame(QMainWindow):
         layout.addWidget(g4)
         return layout
 
-    def _build_source_marker_group(self, title, name, mrk, obj, wildcard):
+    def _build_source_marker_group(
+        self,
+        title: str,
+        name: str,
+        mrk: MarkerPointSource,
+        obj: PointObject,
+        wildcard: str,
+    ) -> QGroupBox:
         """Build a group box with the full set of controls for one source."""
         g = QGroupBox(title)
         layout = QVBoxLayout(g)
@@ -824,7 +845,9 @@ class Kit2FiffFrame(QMainWindow):
         layout.addLayout(self._build_point_object_row(name, obj))
         return g
 
-    def _build_marker_file_row(self, name, mrk, wildcard):
+    def _build_marker_file_row(
+        self, name: str, mrk: MarkerPointSource, wildcard: str
+    ) -> QVBoxLayout:
         # the (read-only) line edit mirrors the model's file path, with the
         # basename shown separately so it stays visible for long paths
         outer = QVBoxLayout()
@@ -849,7 +872,7 @@ class Kit2FiffFrame(QMainWindow):
         outer.addWidget(basename)
         return outer
 
-    def _build_marker_use_row(self, name, mrk):
+    def _build_marker_use_row(self, name: str, mrk: MarkerPointSource) -> QHBoxLayout:
         # checkboxes selecting which points (0-4) feed the interpolation
         row = QHBoxLayout()
         row.addWidget(QLabel("Use:"))
@@ -877,7 +900,9 @@ class Kit2FiffFrame(QMainWindow):
         )
         return row
 
-    def _build_marker_button_row(self, name, mrk):
+    def _build_marker_button_row(
+        self, name: str, mrk: MarkerPointSource
+    ) -> QHBoxLayout:
         # Clear and Save As are gated on there being data (can_save)
         row = QHBoxLayout()
         gated = []
@@ -900,7 +925,7 @@ class Kit2FiffFrame(QMainWindow):
         )
         return row
 
-    def _build_point_object_row(self, name, obj):
+    def _build_point_object_row(self, name: str, obj: PointObject) -> QHBoxLayout:
         """Build visualization controls (Show/color/Size/Label) for a glyph."""
         row = QHBoxLayout()
 
@@ -941,7 +966,7 @@ class Kit2FiffFrame(QMainWindow):
         return row
 
     @staticmethod
-    def _set_color_swatch(button, color):
+    def _set_color_swatch(button: QPushButton, color: Sequence[float]) -> None:
         qcolor = QColor.fromRgbF(*color[:3])
         button.setText("(%d,%d,%d)" % (qcolor.red(), qcolor.green(), qcolor.blue()))
         # pick a readable text color based on the swatch's luminance
@@ -949,12 +974,12 @@ class Kit2FiffFrame(QMainWindow):
         fg = "black" if luminance > 0.5 else "white"
         button.setStyleSheet("background-color: %s; color: %s" % (qcolor.name(), fg))
 
-    def _pick_color(self, obj):
+    def _pick_color(self, obj: PointObject) -> None:
         qcolor = QColorDialog.getColor(QColor.fromRgbF(*obj.color[:3]), self)
         if qcolor.isValid():
             obj.color = (qcolor.redF(), qcolor.greenF(), qcolor.blueF())
 
-    def _toggle_use(self, mrk, idx, checked):
+    def _toggle_use(self, mrk: MarkerPointSource, idx: int, checked: bool) -> None:
         use = set(mrk.use)
         if checked:
             use.add(idx)
@@ -962,13 +987,15 @@ class Kit2FiffFrame(QMainWindow):
             use.discard(idx)
         mrk.use = sorted(use)
 
-    def _browse_file(self, edit, wildcard, callback):
+    def _browse_file(
+        self, edit: QLineEdit, wildcard: str, callback: Callable[[str], None]
+    ) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Select File", "", wildcard)
         if path:
             edit.setText(path)
             callback(path)
 
-    def _build_kit2fiff_column(self):
+    def _build_kit2fiff_column(self) -> QVBoxLayout:
         layout = QVBoxLayout()
 
         # Sources group
@@ -1136,7 +1163,7 @@ class Kit2FiffFrame(QMainWindow):
     # UI state updates
     # ------------------------------------------------------------------
 
-    def _update_ui_state(self, change=None):
+    def _update_ui_state(self, change: Bunch | None = None) -> None:
         model = self.model
         self._save_btn.setEnabled(bool(model.can_save))
         self._test_stim_btn.setEnabled(bool(model.can_test_stim))
@@ -1157,7 +1184,7 @@ class Kit2FiffFrame(QMainWindow):
                 cb.setChecked(idx in model.use_mrk)
                 cb.blockSignals(False)
 
-    def _toggle_use_mrk(self, idx, checked):
+    def _toggle_use_mrk(self, idx: int, checked: bool) -> None:
         use = set(self.model.use_mrk)
         if checked:
             use.add(idx)
@@ -1169,7 +1196,7 @@ class Kit2FiffFrame(QMainWindow):
     # Config persistence / window lifecycle
     # ------------------------------------------------------------------
 
-    def save_config(self, home_dir=None):
+    def save_config(self, home_dir: str | None = None) -> None:
         """Write configuration values to mne config."""
         model = self.model
         set_config(
@@ -1191,7 +1218,7 @@ class Kit2FiffFrame(QMainWindow):
             set_env=False,
         )
 
-    def closeEvent(self, event):
+    def closeEvent(self, event: QCloseEvent) -> None:
         """Veto closing while files are still being saved."""
         if self.kit2fiff_panel.queue.unfinished_tasks:
             QMessageBox.information(

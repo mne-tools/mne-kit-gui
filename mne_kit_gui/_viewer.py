@@ -6,16 +6,31 @@
 # License: BSD-3-Clause
 
 import numpy as np
+import pyvista as pv
+from pyvistaqt import QtInteractor  # ty: ignore[unresolved-import]
+from vtkmodules.vtkFiltersSources import vtkSphereSource
 
-from traitlets import HasTraits, Any, Bool, Float, Int, List, Unicode, observe
+from qtpy.QtWidgets import (
+    QComboBox,
+    QDoubleSpinBox,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
+
+from traitlets import HasTraits, Any, Bool, Bunch, Float, Int, List, Unicode, observe
 
 
-def _mm_fmt(x):
+def _mm_fmt(x: float) -> str:
     """Format data in units of mm."""
     return "%0.1f" % x
 
 
-def embed_pyvista_scene(parent_widget):
+def embed_pyvista_scene(parent_widget: QWidget) -> QtInteractor:
     """Embed a pyvistaqt scene in a Qt widget.
 
     Parameters
@@ -31,14 +46,19 @@ def embed_pyvista_scene(parent_widget):
         ``parent_widget`` and is used directly for all 3D plotting
         (``plotter.add_mesh``, ``plotter.camera``, etc.).
     """
-    from pyvistaqt import QtInteractor
-
     plotter = QtInteractor(parent_widget)
-    parent_widget.layout().addWidget(plotter)
+    layout = parent_widget.layout()
+    assert layout is not None  # the caller sets a layout before calling
+    layout.addWidget(plotter)
     return plotter
 
 
-def _sph_to_cart_view(azimuth, elevation, distance, focalpoint):
+def _sph_to_cart_view(
+    azimuth: float,
+    elevation: float,
+    distance: float,
+    focalpoint: tuple[float, float, float],
+) -> tuple[np.ndarray, tuple[float, float, float]]:
     """Convert (azimuth, elevation) on a sphere to a camera position.
 
     Mirrors the convention used by ``mne.transforms._sph_to_cart``:
@@ -98,11 +118,11 @@ class HeadViewController(HasTraits):
     scene = Any()  # pyvistaqt.QtInteractor
 
     @observe("scene")
-    def _scene_changed(self, change):
+    def _scene_changed(self, change: Bunch) -> None:
         if change["new"] is not None:
             self._init_view()
 
-    def _init_view(self):
+    def _init_view(self) -> None:
         scene = self.scene
         if scene is None:
             return
@@ -111,14 +131,14 @@ class HeadViewController(HasTraits):
         self.interaction = self.interaction  # apply deferred interaction
 
     @observe("scale")
-    def _scale_changed(self, change):
+    def _scale_changed(self, change: Bunch) -> None:
         scene = self.scene
         if scene is not None:
             scene.camera.parallel_scale = change["new"]
             scene.render()
 
     @observe("interaction")
-    def _interaction_changed(self, change):
+    def _interaction_changed(self, change: Bunch) -> None:
         scene = self.scene
         if scene is None:
             return
@@ -126,7 +146,7 @@ class HeadViewController(HasTraits):
         kwargs = {"mouse_wheel_zooms": True} if interaction == "terrain" else {}
         getattr(scene, "enable_%s_style" % interaction)(**kwargs)
 
-    def on_set_view(self, view, _=""):
+    def on_set_view(self, view: str, _: str = "") -> None:
         """Set a named head view ('front', 'left', 'right', 'top')."""
         if self.scene is None:
             return
@@ -170,7 +190,7 @@ class HeadViewController(HasTraits):
         self.scene.render()
 
 
-def build_head_view_group(headview):
+def build_head_view_group(headview: HeadViewController) -> QGroupBox:
     """Build a Qt "View" group for a :class:`HeadViewController`.
 
     Parameters
@@ -185,17 +205,6 @@ def build_head_view_group(headview):
         centered above Right / Front / Left), plus a scale field and a
         trackball/terrain interaction selector.
     """
-    from qtpy.QtWidgets import (
-        QComboBox,
-        QDoubleSpinBox,
-        QGridLayout,
-        QGroupBox,
-        QHBoxLayout,
-        QLabel,
-        QPushButton,
-        QVBoxLayout,
-    )
-
     group = QGroupBox("View")
     layout = QVBoxLayout(group)
 
@@ -256,8 +265,14 @@ class Object(HasTraits):
     visible = Bool(True)
 
     def __init__(
-        self, *, points=None, name="", scene=None, color=(1.0, 1.0, 1.0), opacity=0.99
-    ):
+        self,
+        *,
+        points: np.ndarray | None = None,
+        name: str = "",
+        scene: QtInteractor | None = None,
+        color: tuple[float, float, float] = (1.0, 1.0, 1.0),
+        opacity: float = 0.99,
+    ) -> None:
         if points is None:
             points = np.empty((0, 3))
         super().__init__(
@@ -268,7 +283,7 @@ class Object(HasTraits):
             opacity=opacity,
         )
 
-    def _update_points(self):
+    def _update_points(self) -> bool | None:
         """Update the location of the plotted points."""
         if self.src is not None and len(self.points) == self.src.n_points:
             self.src.points = self.points
@@ -289,25 +304,25 @@ class PointObject(Object):
     def __init__(
         self,
         *,
-        points=None,
-        name="",
-        scene=None,
-        color=(1.0, 1.0, 1.0),
-        opacity=0.99,
-        point_scale=10,
-    ):
+        points: np.ndarray | None = None,
+        name: str = "",
+        scene: QtInteractor | None = None,
+        color: tuple[float, float, float] = (1.0, 1.0, 1.0),
+        opacity: float = 0.99,
+        point_scale: float = 10,
+    ) -> None:
         super().__init__(
             points=points, name=name, scene=scene, color=color, opacity=opacity
         )
         self.point_scale = point_scale
 
     @observe("scene")
-    def _scene_changed(self, change):
+    def _scene_changed(self, change: Bunch) -> None:
         if change["new"] is not None:
             self._plot_points()
 
     @observe("label")
-    def _show_labels(self, change):
+    def _show_labels(self, change: Bunch) -> None:
         show = change["new"]
         while self.text3d_labels:
             name = self.text3d_labels.pop()
@@ -330,11 +345,11 @@ class PointObject(Object):
             self.text3d_labels.append(name)
 
     @observe("visible")
-    def _on_hide(self, change):
+    def _on_hide(self, change: Bunch) -> None:
         if not change["new"]:
             self.label = False
 
-    def _plot_points(self):
+    def _plot_points(self) -> None:
         """(Re)build the glyphed points and push them to the scene."""
         if self.scene is None:
             return
@@ -346,9 +361,6 @@ class PointObject(Object):
         pts = self.points
         if len(pts) == 0:
             return
-
-        import pyvista as pv
-        from vtkmodules.vtkFiltersSources import vtkSphereSource
 
         src = vtkSphereSource()
         src.SetThetaResolution(self.resolution)
@@ -383,26 +395,26 @@ class PointObject(Object):
         self.scene.render()
 
     @observe("points", "resolution")
-    def _update_projections(self, change):
+    def _update_projections(self, change: Bunch) -> None:
         """Rebuild the glyphed points after a style-affecting change."""
         self._plot_points()
 
     @observe("color")
-    def _color_changed(self, change):
+    def _color_changed(self, change: Bunch) -> None:
         self._plot_points()
 
     @observe("point_scale")
-    def _point_scale_changed(self, change):
+    def _point_scale_changed(self, change: Bunch) -> None:
         self._plot_points()
 
     @observe("visible")
-    def _visible_changed(self, change):
+    def _visible_changed(self, change: Bunch) -> None:
         if self.glyph is not None:
             self.glyph.SetVisibility(change["new"])
             self.scene.render()
 
     @observe("opacity")
-    def _opacity_changed(self, change):
+    def _opacity_changed(self, change: Bunch) -> None:
         if self.glyph is not None:
             self.glyph.prop.opacity = change["new"]
             self.scene.render()
