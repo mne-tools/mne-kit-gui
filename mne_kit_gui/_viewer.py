@@ -427,7 +427,14 @@ class PointObject(Object):
             orient=orient, scale=False, factor=self.point_scale, geom=geom
         )
 
-        kwargs = {"opacity": self.opacity, "culling": "back", "pickable": False}
+        kwargs = {
+            "opacity": self.opacity,
+            "culling": "back",
+            "pickable": False,
+            "name": self.name or None,
+            "render": False,
+            "smooth_shading": True,
+        }
         if use_scalars:
             from matplotlib.colors import ListedColormap
 
@@ -439,9 +446,7 @@ class PointObject(Object):
             )
         else:
             kwargs["color"] = self.color
-        self.glyph = self.scene.add_mesh(
-            mesh, name=self.name or None, render=False, **kwargs
-        )
+        self.glyph = self.scene.add_mesh(mesh, **kwargs)
         self.glyph.SetVisibility(self.visible)
         self.src = mesh
         self.scene.render()
@@ -498,8 +503,7 @@ class SurfaceObject(Object):
     surf_rear = Any()  # pyvista Actor (back face, optional)
     rear_opacity = Float(1.0)
 
-    def __init__(self, block_behind=False, **kwargs):
-        self._block_behind = block_behind
+    def __init__(self, **kwargs):
         if "tris" not in kwargs:
             kwargs["tris"] = np.empty((0, 3), int)
         super().__init__(**kwargs)
@@ -532,19 +536,6 @@ class SurfaceObject(Object):
         self.src = mesh
         style = "wireframe" if self.rep == "Wireframe" else "surface"
 
-        if self._block_behind:
-            self.surf_rear = self.scene.add_mesh(
-                mesh,
-                color=self.color,
-                style=style,
-                line_width=1,
-                opacity=self.rear_opacity,
-                culling="front",
-                pickable=False,
-                render=False,
-            )
-            self.surf_rear.SetVisibility(self.visible)
-
         self.surf = self.scene.add_mesh(
             mesh,
             color=self.color,
@@ -553,6 +544,7 @@ class SurfaceObject(Object):
             opacity=self.opacity,
             culling="back",
             pickable=True,
+            smooth_shading=True,
             render=False,
         )
         self.surf.SetVisibility(self.visible)

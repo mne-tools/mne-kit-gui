@@ -5,6 +5,7 @@
 # License: BSD-3-Clause
 
 import numpy as np
+import pyvista as pv
 
 
 def _create_mesh_surf(surf):
@@ -95,4 +96,13 @@ def _glyph_geom(mode, resolution=8, solid_transform=None, height=None):
         trp.SetTransform(tr)
         trp.Update()
         geom = trp.GetOutput()
+    # compute normals for smooth shading
+    geom = pv.PolyData(geom)
+    geom.compute_normals(
+        cell_normals=False,
+        point_normals=True,
+        split_vertices=False,
+        consistent_normals=False,
+        non_manifold_traversal=False,
+    )
     return geom
