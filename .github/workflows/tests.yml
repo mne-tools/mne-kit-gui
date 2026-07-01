@@ -37,9 +37,12 @@ jobs:
             python: '3.13'
             kind: 'stable'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      - uses: pyvista/setup-headless-display-action@main
+      - uses: mamba-org/setup-micromamba@v3
+        timeout-minutes: 8
       - uses: pyvista/setup-headless-display-action@main
         with:
           qt: true
