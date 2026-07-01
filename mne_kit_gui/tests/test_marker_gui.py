@@ -177,7 +177,7 @@ def test_edit_points_dialog(qtbot):
     assert_allclose(dlg.points[0, 0], 0.123456, atol=1e-9)
 
 
-def test_marker_source_edit(qtbot, mocker):
+def test_marker_source_edit(mocker):
     """Test MarkerPointSource.edit applies an accepted dialog's points."""
     src = MarkerPointSource()
     new_points = np.arange(15).reshape(5, 3).astype(float) / 10

@@ -15,43 +15,18 @@ except Exception:
 del version
 
 
-def fiducials(subject=None, fid_file=None, subjects_dir=None, *, block=True):
-    """Set the fiducials for an MRI subject.
+def fiducials(*args, **kwargs):
+    """Set the fiducials for an MRI subject (removed).
 
-    Parameters
-    ----------
-    subject : str
-        Name of the mri subject.
-    fid_file : None | str
-        Load a fiducials file different form the subject's default
-        ("{subjects_dir}/{subject}/bem/{subject}-fiducials.fif").
-    subjects_dir : None | str
-        Overrule the subjects_dir environment variable.
-    block : bool
-        If True (default), enter the Qt event loop and block until the
-        GUI is closed. Set to False (e.g. in tests) to show the GUI
-        without blocking.
-
-    Returns
-    -------
-    frame : instance of FiducialsFrame
-        The GUI frame.
-
-    Notes
-    -----
-    All parameters are optional, since they can be set through the GUI.
-    The functionality in this GUI is also part of :func:`coregistration`.
+    .. deprecated::
+        This GUI has been removed. Use the MRI fiducials functionality in
+        ``mne coreg`` instead.
     """
-    from ._fiducials_gui import FiducialsFrame
-
-    app = _init_mne_qtapp()
-    frame = FiducialsFrame(subject=subject, subjects_dir=subjects_dir)
-    if fid_file is not None:
-        frame.model.fid.file = fid_file
-    frame.show()
-    if block:
-        _qt_app_exec(app)
-    return frame
+    raise RuntimeError(
+        "The mne_kit_gui.fiducials GUI has been removed. Use the coregistration "
+        "GUI instead, e.g. by running `mne coreg` from the command line or "
+        "`mne.gui.coregistration()` from Python."
+    )
 
 
 def kit2fiff(*, block=True):

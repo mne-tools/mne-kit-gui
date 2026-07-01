@@ -4,16 +4,8 @@
 # License: BSD-3-Clause
 
 import gc
-import os
-import shutil
-from pathlib import Path
 
 import pytest
-
-from mne.datasets import testing
-
-data_path = testing.data_path(download=False)
-subjects_dir = data_path / "subjects"
 
 
 def pytest_configure(config):
@@ -46,17 +38,15 @@ def pytest_configure(config):
             config.addinivalue_line("filterwarnings", warning_line)
 
 
-@pytest.fixture(scope="function", params=[testing._pytest_param()])
-def subjects_dir_tmp(tmp_path):
-    """Copy MNE-testing-data subjects_dir to a temp dir for manipulation."""
-    for key in ("sample", "fsaverage"):
-        shutil.copytree(subjects_dir / key, tmp_path / key)
-    for root, dirs, files in os.walk(tmp_path):
-        for dir_ in dirs:
-            (Path(root) / dir_).chmod(0o755)
-        for file_ in files:
-            (Path(root) / file_).chmod(0o644)
-    return tmp_path
+@pytest.fixture(autouse=True)
+def _qapp(qtbot):
+    """Ensure a QApplication exists for every test.
+
+    Many objects create Qt widgets (e.g. a QProgressDialog) even when no GUI is
+    shown, which aborts the interpreter if no QApplication has been created.
+    Depending on ``qtbot`` here guarantees one exists for the whole test run.
+    """
+    yield
 
 
 @pytest.fixture
