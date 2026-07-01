@@ -12,6 +12,7 @@ permissions:
 
 jobs:
   autofix:
+    name: "prek pre-commit"
     env:
       # Will use MNE_BOT_TOKEN when running from workflow_dispatch or schedule
       GITHUB_TOKEN: ${{ secrets.MNE_BOT_TOKEN || secrets.GITHUB_TOKEN }}
