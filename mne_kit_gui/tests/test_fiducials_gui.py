@@ -8,6 +8,8 @@ import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
+from qtpy.QtWidgets import QPushButton
+
 from mne.datasets import testing
 
 import mne_kit_gui
@@ -97,6 +99,31 @@ def test_fiducials_frame(qtbot, check_gc, mocker, tmp_path):
     assert frame.mri_obj.surf is not None
     assert frame.mri_obj.points.shape[1] == 3
     assert frame.lpa_obj.glyph is not None
+
+    # --- subject selector controls ---
+    # the subjects_dir field mirrors the model (previously it stayed blank)
+    assert frame._subjects_dir_edit.text() == str(subjects_dir)
+    # the fsaverage button's enabled state tracks can_create_fsaverage
+    fs_btn = frame.findChild(QPushButton, "create_fsaverage")
+    source = frame.model.subject_source
+    source.can_create_fsaverage = False
+    assert not fs_btn.isEnabled()
+    source.can_create_fsaverage = True
+    assert fs_btn.isEnabled()
+    # clicking invokes create_fsaverage; errors are swallowed after reporting
+    mocker.patch.object(frame.spanel, "create_fsaverage")
+    fs_btn.click()
+    frame.spanel.create_fsaverage.assert_called_once()
+    frame.spanel.create_fsaverage.side_effect = RuntimeError("boom")
+    fs_btn.click()  # the panel already showed a dialog; no traceback escapes
+    # the subjects_dir Browse button routes a chosen directory into the model
+    mock_fd = mocker.patch("mne_kit_gui._fiducials_gui.QFileDialog")
+    mock_fd.getExistingDirectory.return_value = str(subjects_dir)  # same dir
+    frame.findChild(QPushButton, "subjects_dir_browse").click()
+    assert frame.spanel.subjects_dir == str(subjects_dir)
+    mock_fd.getExistingDirectory.return_value = ""  # cancelled -> no-op
+    frame.findChild(QPushButton, "subjects_dir_browse").click()
+    mocker.stopall()
 
     # head views should not raise and should move the camera
     for view in ("front", "left", "right", "top"):

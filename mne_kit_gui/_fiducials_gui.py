@@ -594,6 +594,17 @@ class FiducialsFrame(QMainWindow):
             self._subject_combo.setCurrentText(cur)
         self._subject_combo.blockSignals(False)
 
+    def _browse_subjects_dir(self):
+        path = QFileDialog.getExistingDirectory(self, "Select SUBJECTS_DIR")
+        if path:
+            self.spanel.subjects_dir = path
+
+    def _create_fsaverage(self):
+        try:
+            self.spanel.create_fsaverage()
+        except Exception:
+            pass  # spanel.create_fsaverage already reported the error dialog
+
     def _on_pos_spin_changed(self, idx, value):
         pos = self.panel.current_pos_mm.copy()
         pos[0, idx] = value
