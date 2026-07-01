@@ -135,6 +135,18 @@ def test_kit2fiff_model(tmp_path: Path, mocker: MockerFixture) -> None:
     model.show_gui = False
     model.use_mrk = [0, 1, 2, 3, 4]
 
+    # Step 7: switching the data file keeps the event settings (so several
+    # recordings can be converted without re-entering them)
+    model.stim_slope = "+"
+    model.stim_threshold = 3.5
+    model.stim_chs = "160:168"
+    model.sqd_file = str(sqd_path)  # re-select the data file
+    assert model.stim_slope == "+"
+    assert model.stim_threshold == 3.5
+    assert model.stim_chs == "160:168"
+    assert model.can_save
+    model.stim_chs = ""
+
     # test reset
     model.clear_all()
     assert model.use_mrk == [0, 1, 2, 3, 4]

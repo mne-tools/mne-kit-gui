@@ -775,19 +775,19 @@ class Kit2FiffFrame(QMainWindow):
         self.setCentralWidget(central)
         outer = QHBoxLayout(central)
 
-        # Column stretch mirrors the original mayavi layout: wide marker /
-        # kit2fiff panels flanking a comparatively narrow 3D scene.
+        # Give the 3D scene the lion's share of the width: unlike the original
+        # mayavi layout, the plot is useful to watch during every adjustment.
         # ---- left column: marker panel ----
-        outer.addLayout(self._build_marker_column(), stretch=2)
+        outer.addLayout(self._build_marker_column(), stretch=1)
 
         # ---- center: scene + head view controls ----
         center = QVBoxLayout()
         center.addWidget(self._scene_widget, stretch=4)
         center.addWidget(build_head_view_group(self.headview))
-        outer.addLayout(center, stretch=1)
+        outer.addLayout(center, stretch=2)
 
         # ---- right column: kit2fiff panel ----
-        outer.addLayout(self._build_kit2fiff_column(), stretch=2)
+        outer.addLayout(self._build_kit2fiff_column(), stretch=1)
 
     def _build_marker_column(self) -> QVBoxLayout:
         layout = QVBoxLayout()
@@ -925,28 +925,33 @@ class Kit2FiffFrame(QMainWindow):
 
     def _build_marker_button_row(
         self, name: str, mrk: MarkerPointSource
-    ) -> QHBoxLayout:
-        # Clear and Save As are gated on there being data (can_save)
-        row = QHBoxLayout()
+    ) -> QVBoxLayout:
+        # Two compact rows keep the marker panel narrow (leaving width for the
+        # 3D scene): file lifecycle on top, point-order ops below. Clear and
+        # Save as are gated on there being data (can_save).
+        outer = QVBoxLayout()
+        rows = {"a": QHBoxLayout(), "b": QHBoxLayout()}
         gated = []
-        for key, label, handler in (
-            ("clear", "Clear", mrk.clear),
-            ("edit", "Edit", mrk.edit),
-            ("switch", "Switch Left/Right", mrk.switch_left_right),
-            ("reorder", "Reorder", mrk.reorder),
-            ("save", "Save as", mrk.save_as),
+        for key, label, handler, r in (
+            ("clear", "Clear", mrk.clear, "a"),
+            ("edit", "Edit", mrk.edit, "a"),
+            ("save", "Save as", mrk.save_as, "a"),
+            ("switch", "Switch Left/Right", mrk.switch_left_right, "b"),
+            ("reorder", "Reorder", mrk.reorder, "b"),
         ):
             btn = QPushButton(label)
             btn.setObjectName("%s_%s" % (name, key))
             btn.clicked.connect(lambda *_, h=handler: h())
             btn.setEnabled(mrk.can_save if key in ("clear", "save") else True)
-            row.addWidget(btn)
+            rows[r].addWidget(btn)
             if key in ("clear", "save"):
                 gated.append(btn)
+        outer.addLayout(rows["a"])
+        outer.addLayout(rows["b"])
         mrk.observe(
             lambda ch: [btn.setEnabled(ch["new"]) for btn in gated], names=["can_save"]
         )
-        return row
+        return outer
 
     def _build_point_object_row(self, name: str, obj: PointObject) -> QHBoxLayout:
         """Build visualization controls (Show/color/Size/Label) for a glyph."""

@@ -35,21 +35,28 @@ def test_combine_markers_model(tmp_path: Path, mocker: MockerFixture) -> None:
 
     model = CombineMarkersModel()
 
-    # set one marker file
+    # Step 1: one marker file -> combined equals it, no distance yet
     assert not model.mrk3.can_save
     model.mrk1.file = str(mrk_pre_path)
     assert model.mrk3.can_save
     assert_array_equal(model.mrk3.points, model.mrk1.points)
+    assert model.distance == ""
 
     # setting second marker file
     model.mrk2.file = str(mrk_pre_path)
     assert_array_equal(model.mrk3.points, model.mrk1.points)
 
-    # set second marker
+    # Step 2: a distinct second marker -> distance per point, Transform combines
     model.mrk2.clear()
     model.mrk2.file = str(mrk_post_path)
     assert np.any(model.mrk3.points)
     points_interpolate_mrk1_mrk2 = model.mrk3.points
+    dists = model.distance.split("\t")
+    assert len(dists) == 5 and all(d.endswith(" mm") for d in dists), model.distance
+    # Step 3 (Transform, default): pre moved halfway to post -> combined centroid
+    # sits at the pre/post midpoint centroid
+    mid = (model.mrk1.points + model.mrk2.points) / 2.0
+    assert_allclose(model.mrk3.points.mean(0), mid.mean(0), atol=1e-3)
 
     # change interpolation method
     model.mrk3.method = "Average"
@@ -199,4 +206,11 @@ def test_marker_source_edit(mocker: MockerFixture) -> None:
 
 def test_combine_markers_panel() -> None:
     """Test CombineMarkersPanel."""
-    CombineMarkersPanel()
+    panel = CombineMarkersPanel()
+    # Wiki colour scheme: pre=red (mrk1), post=green (mrk2), combined=blue (mrk3)
+    for obj, channel in (
+        (panel.mrk1_obj, 0),
+        (panel.mrk2_obj, 1),
+        (panel.mrk3_obj, 2),
+    ):
+        assert np.argmax(obj.color[:3]) == channel, obj.color
