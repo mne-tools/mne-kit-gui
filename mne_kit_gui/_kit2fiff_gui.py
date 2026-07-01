@@ -18,6 +18,7 @@ from qtpy.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QColorDialog,
+    QComboBox,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
@@ -879,6 +880,7 @@ class Kit2FiffFrame(QMainWindow):
         edit.setObjectName("%s_file" % name)
         edit.setReadOnly(True)
         edit.setPlaceholderText("File path...")
+        edit.setMinimumWidth(60)  # allow the panel to be narrow (basename below)
         browse = QPushButton("Browse")
         browse.setObjectName("%s_browse" % name)
         browse.clicked.connect(
@@ -973,13 +975,16 @@ class Kit2FiffFrame(QMainWindow):
         )
         row.addWidget(color)
 
-        row.addWidget(QLabel("Size:"))
+        # glyph size: a compact spin box (its tooltip names it, so no "Size:"
+        # label is needed -- saves width in this thrice-repeated row)
         size = QDoubleSpinBox()
         size.setObjectName("%s_size" % name)
+        size.setToolTip("Glyph size (m)")
         size.setDecimals(4)
         size.setRange(0.0, 1.0)
         size.setSingleStep(1e-3)
         size.setValue(obj.point_scale)
+        size.setMaximumWidth(72)
         size.valueChanged.connect(lambda v: setattr(obj, "point_scale", v))
         obj.observe(lambda ch: size.setValue(ch["new"]), names=["point_scale"])
         row.addWidget(size)
@@ -1042,6 +1047,7 @@ class Kit2FiffFrame(QMainWindow):
         self._sqd_edit = QLineEdit()
         self._sqd_edit.setReadOnly(True)
         self._sqd_edit.setPlaceholderText("KIT data file...")
+        self._sqd_edit.setMinimumWidth(60)
         sqd_btn = QPushButton("Browse")
         sqd_btn.clicked.connect(
             lambda: self._browse_file(
@@ -1061,6 +1067,7 @@ class Kit2FiffFrame(QMainWindow):
         self._hsp_edit = QLineEdit()
         self._hsp_edit.setReadOnly(True)
         self._hsp_edit.setPlaceholderText("Digitizer head shape...")
+        self._hsp_edit.setMinimumWidth(60)
         hsp_btn = QPushButton("Browse")
         hsp_btn.clicked.connect(
             lambda: self._browse_file(
@@ -1069,7 +1076,9 @@ class Kit2FiffFrame(QMainWindow):
                 lambda p: setattr(self.model, "hsp_file", p),
             )
         )
-        row2.addWidget(QLabel("Digitizer\nHead Shape:"))
+        hsp_label = QLabel("HSP:")
+        hsp_label.setToolTip("Digitizer head shape points")
+        row2.addWidget(hsp_label)
         row2.addWidget(self._hsp_edit)
         row2.addWidget(hsp_btn)
         sg_layout.addLayout(row2)
@@ -1080,6 +1089,7 @@ class Kit2FiffFrame(QMainWindow):
         self._fid_edit = QLineEdit()
         self._fid_edit.setReadOnly(True)
         self._fid_edit.setPlaceholderText("Digitizer fiducials...")
+        self._fid_edit.setMinimumWidth(60)
         fid_btn = QPushButton("Browse")
         fid_btn.clicked.connect(
             lambda: self._browse_file(
@@ -1088,7 +1098,9 @@ class Kit2FiffFrame(QMainWindow):
                 lambda p: setattr(self.model, "fid_file", p),
             )
         )
-        row3.addWidget(QLabel("Digitizer\nFiducials:"))
+        fid_label = QLabel("FID:")
+        fid_label.setToolTip("Digitizer fiducials (ELP)")
+        row3.addWidget(fid_label)
         row3.addWidget(self._fid_edit)
         row3.addWidget(fid_btn)
         sg_layout.addLayout(row3)
@@ -1131,15 +1143,17 @@ class Kit2FiffFrame(QMainWindow):
         self._misc_chs_label = QLabel("No SQD file selected...")
         eg_form.addRow("MISC Channels:", self._misc_chs_label)
 
-        # Event onset: trough (falling, "-") vs peak (rising, "+")
+        # Event onset: trough (falling, "-") vs peak (rising, "+"). Short labels
+        # keep the row narrow; the voltage direction is in the tooltips.
         self._slope_group = QButtonGroup(eg)
         slope_row = QHBoxLayout()
-        for text, slope, tag in (
-            ("Trough (5 to 0 V)", "-", "trough"),
-            ("Peak (0 to 5 V)", "+", "peak"),
+        for text, slope, tag, tip in (
+            ("Trough", "-", "trough", "Falling edge (5 → 0 V)"),
+            ("Peak", "+", "peak", "Rising edge (0 → 5 V)"),
         ):
             rb = QRadioButton(text)
             rb.setObjectName("stim_slope_%s" % tag)
+            rb.setToolTip(tip)
             rb.setChecked(self.model.stim_slope == slope)
             rb.toggled.connect(
                 lambda checked, s=slope: (
@@ -1158,31 +1172,21 @@ class Kit2FiffFrame(QMainWindow):
             names=["stim_slope"],
         )
 
-        # Value coding: binary little-/big-endian, or per-channel
-        self._coding_group = QButtonGroup(eg)
-        coding_row = QHBoxLayout()
-        for text, code, tag in (
-            ("Little-endian", ">", "little"),
-            ("Big-endian", "<", "big"),
-            ("Channel#", "channel", "channel"),
-        ):
-            rb = QRadioButton(text)
-            rb.setObjectName("stim_coding_%s" % tag)
-            rb.setChecked(self.model.stim_coding == code)
-            rb.toggled.connect(
-                lambda checked, c=code: (
-                    setattr(self.model, "stim_coding", c) if checked else None
-                )
-            )
-            self._coding_group.addButton(rb)
-            coding_row.addWidget(rb)
-        coding_row.addStretch()
-        eg_form.addRow("Value Coding:", coding_row)
+        # Value coding: binary little-/big-endian or per-channel. A combo box
+        # keeps this 3-way, rarely-changed choice compact -- three radios here
+        # would be the widest row in the panel and squeeze the 3D scene.
+        self._coding_codes = [">", "<", "channel"]
+        coding_combo = QComboBox()
+        coding_combo.setObjectName("stim_coding")
+        coding_combo.addItems(["Little-endian (>)", "Big-endian (<)", "Channel#"])
+        coding_combo.setCurrentIndex(self._coding_codes.index(self.model.stim_coding))
+        coding_combo.currentIndexChanged.connect(
+            lambda i: setattr(self.model, "stim_coding", self._coding_codes[i])
+        )
+        eg_form.addRow("Value Coding:", coding_combo)
         self.model.observe(
-            lambda ch: self._select_radio(
-                self._coding_group,
-                "stim_coding_%s"
-                % {">": "little", "<": "big", "channel": "channel"}[ch["new"]],
+            lambda ch: coding_combo.setCurrentIndex(
+                self._coding_codes.index(ch["new"])
             ),
             names=["stim_coding"],
         )

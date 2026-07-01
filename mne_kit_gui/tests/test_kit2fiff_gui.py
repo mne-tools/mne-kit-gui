@@ -13,6 +13,7 @@ from pytestqt.qtbot import QtBot
 from qtpy.QtGui import QColor
 from qtpy.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDialog,
     QDoubleSpinBox,
     QLabel,
@@ -376,25 +377,18 @@ def test_kit2fiff_gui(
     assert find_child(frame, QDoubleSpinBox, "stim_threshold").value() == 10.0
     assert frame._stim_chs_edit.text() == "save this!"
 
-    # Event Onset / Value Coding / New Marker method radios drive their model
-    # trait, and a model change syncs the radios back (default_name is the
-    # restored/default selection; on_name/on_val is what clicking it sets).
+    # Event Onset and New Marker method radios drive their model trait, and a
+    # model change syncs the radios back (default_name is the restored/default
+    # selection; on_name/on_val is what clicking it sets).
     for obj, attr, default_name, on_name, on_val in (
         (frame.model, "stim_slope", "stim_slope_trough", "stim_slope_peak", "+"),
-        (
-            frame.model,
-            "stim_coding",
-            "stim_coding_little",
-            "stim_coding_channel",
-            "channel",
-        ),  # noqa: E501
         (
             frame.model.markers.mrk3,
             "method",
             "mrk3_method_transform",
             "mrk3_method_average",
             "Average",
-        ),  # noqa: E501
+        ),
     ):
         default_val = getattr(obj, attr)
         assert find_child(frame, QRadioButton, default_name).isChecked()
@@ -402,6 +396,15 @@ def test_kit2fiff_gui(
         assert getattr(obj, attr) == on_val
         setattr(obj, attr, default_val)  # model change syncs the radios back
         assert find_child(frame, QRadioButton, default_name).isChecked()
+
+    # Value Coding is a compact combo box; it drives stim_coding both ways
+    coding = find_child(frame, QComboBox, "stim_coding")
+    assert coding.currentIndex() == 0  # ">" little-endian is the default
+    coding.setCurrentIndex(2)
+    assert frame.model.stim_coding == "channel"
+    frame.model.stim_coding = "<"  # model change syncs the combo back
+    assert coding.currentIndex() == 1
+    frame.model.stim_coding = ">"
 
     # set and reset marker file
     points = [
