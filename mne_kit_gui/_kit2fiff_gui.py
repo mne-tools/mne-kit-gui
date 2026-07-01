@@ -695,7 +695,7 @@ class Kit2FiffFrame(QMainWindow):
         QVBoxLayout(self._scene_widget)
         self.scene = embed_pyvista_scene(self._scene_widget)
 
-        self.headview = HeadViewController(scene=self.scene, scale=160, system="RAS")
+        self.headview = HeadViewController(scene=self.scene, scale=0.16, system="RAS")
         self.kit2fiff_panel = Kit2FiffPanel(scene=self.scene, model=self.model)
         self.marker_panel = CombineMarkersPanel(
             scene=self.scene, model=self.model.markers, trans=als_ras_trans, parent=self

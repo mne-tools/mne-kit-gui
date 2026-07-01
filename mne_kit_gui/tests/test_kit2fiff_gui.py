@@ -469,6 +469,20 @@ def test_kit2fiff_gui(qtbot, check_gc, tmp_path, monkeypatch, mocker):
     frame.model.use_mrk = [0, 1, 2, 3, 4]  # model change syncs the checkbox back
     assert cb2.isChecked()
 
+    # the 3D scene auto-fits the (meter-scale) geometry on a view change: the
+    # loaded head-shape/sensors must actually be visible, not an invisible speck
+    frame._scene_widget.setMinimumSize(400, 400)
+    frame._scene_widget.resize(400, 400)
+    frame.scene.resize(400, 400)
+    qtbot.wait(50)
+    frame.headview.on_set_view("front")
+    img = frame.scene.screenshot(return_img=True)
+    background = img[0, 0].astype(int)
+    foreground = (np.abs(img.astype(int) - background).sum(-1) > 30).mean()
+    assert foreground > 1e-3  # geometry is framed and visible
+    # auto-fit produced a data-scale zoom, not the raw 0.16 default or 160
+    assert 0.01 < frame.headview.scale < 1.0
+
     frame.model.clear_all()
     assert_array_equal(frame.marker_panel.mrk1_obj.points, 0)
     assert_array_equal(frame.marker_panel.mrk3_obj.points, 0)

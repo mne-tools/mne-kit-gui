@@ -167,6 +167,12 @@ class HeadViewController(HasTraits):
         position, view_up = _sph_to_cart_view(az, el, distance, (0.0, 0.0, 0.0))
         self.scene.camera_position = [tuple(position), (0.0, 0.0, 0.0), view_up]
         self.scene.camera.roll = roll
+        # Fit the data along the chosen view direction, mirroring the auto-fit
+        # that mayavi's ``mlab.view(distance=None)`` performs. Without this the
+        # parallel-projection scale stays wherever it was set, which can leave
+        # the (meter-scale) geometry an invisible speck.
+        self.scene.reset_camera()
+        self.scale = self.scene.camera.parallel_scale
         self.scene.render()
 
 
