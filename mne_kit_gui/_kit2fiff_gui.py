@@ -738,6 +738,9 @@ class Kit2FiffFrame(QMainWindow):
         )
         self._update_ui_state()
 
+        # start from a top-down view, matching the mayavi GUI's default
+        self.headview.on_set_view("top")
+
     # ------------------------------------------------------------------
     # UI construction
     # ------------------------------------------------------------------
