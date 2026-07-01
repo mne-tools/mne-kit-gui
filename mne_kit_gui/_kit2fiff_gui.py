@@ -126,12 +126,24 @@ class Kit2FiffModel(HasTraits):
 
     parent = Any()  # QWidget | None, for parenting dialogs
 
-    def __init__(self, **kwargs):
-        if "markers" not in kwargs:
-            kwargs["markers"] = CombineMarkersModel()
-        if "use_mrk" not in kwargs:
-            kwargs["use_mrk"] = list(range(5))
-        super().__init__(**kwargs)
+    def __init__(
+        self,
+        *,
+        stim_chs="",
+        stim_coding=">",
+        stim_slope="-",
+        stim_threshold=1.0,
+        show_gui=False,
+    ):
+        super().__init__(
+            markers=CombineMarkersModel(),
+            use_mrk=list(range(5)),
+            stim_chs=stim_chs,
+            stim_coding=stim_coding,
+            stim_slope=stim_slope,
+            stim_threshold=stim_threshold,
+            show_gui=show_gui,
+        )
         self.mrk = np.zeros((5, 3))
         self.elp = np.empty((0, 3))
         self.fid = np.empty((0, 3))
@@ -552,8 +564,8 @@ class Kit2FiffPanel(HasTraits):
     queue_current = Unicode()
     queue_len = Int(0)
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, *, scene=None, model=None):
+        super().__init__(scene=scene, model=model)
         if self.queue is None:
             self.queue = queue.Queue()
         self._start_save_worker()

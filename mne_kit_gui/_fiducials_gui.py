@@ -94,14 +94,11 @@ class MRIHeadWithFiducialsModel(HasTraits):
 
     parent = Any()  # QWidget | None, for parenting dialogs
 
-    def __init__(self, **kwargs):
+    def __init__(self, *, subjects_dir=None, subject=None, parent=None):
         # subjects_dir/subject/parent trigger observers that need the
         # sub-models to already exist -- defer applying them until after
         # the defaults below are set up.
-        subjects_dir = kwargs.pop("subjects_dir", None)
-        subject = kwargs.pop("subject", None)
-        parent = kwargs.pop("parent", None)
-        super().__init__(**kwargs)
+        super().__init__()
         self._init_sub_models()
         self._wire_observers()
         self._apply_deferred(subjects_dir, subject, parent)
@@ -335,8 +332,8 @@ class FiducialsPanel(HasTraits):
 
     picker = Any()
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, *, model=None, headview=None):
+        super().__init__(model=model, headview=headview)
         if self.current_pos_mm is None:
             self.current_pos_mm = np.zeros((1, 3))
         if self.model is not None:
@@ -675,7 +672,6 @@ class FiducialsFrame(QMainWindow):
             obj = PointObject(
                 scene=self.scene,
                 color=defaults[f"{key}_color"],
-                has_norm=True,
                 point_scale=self.point_scale,
             )
             setattr(self, f"{key}_obj", obj)

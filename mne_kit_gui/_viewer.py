@@ -9,11 +9,7 @@ import numpy as np
 
 from traitlets import HasTraits, Any, Bool, Float, Int, List, Unicode, observe
 
-from mne.defaults import DEFAULTS
-from mne.surface import _DistanceQuery
-from mne.transforms import apply_trans, rotation
-
-from ._3d import _create_mesh_surf, _glyph_geom
+from ._3d import _create_mesh_surf
 
 
 def _mm_fmt(x):
@@ -252,7 +248,6 @@ class Object(HasTraits):
     """Represent a 3d object in a pyvista scene."""
 
     points = Any()  # ndarray (n, 3)
-    nn = Any()  # ndarray (n, 3)
     name = Unicode()
 
     scene = Any()  # pyvistaqt.QtInteractor
@@ -262,12 +257,18 @@ class Object(HasTraits):
     opacity = Float(0.99)
     visible = Bool(True)
 
-    def __init__(self, **kwargs):
-        if "points" not in kwargs:
-            kwargs["points"] = np.empty((0, 3))
-        if "nn" not in kwargs:
-            kwargs["nn"] = np.empty((0, 3))
-        super().__init__(**kwargs)
+    def __init__(
+        self, *, points=None, name="", scene=None, color=(1.0, 1.0, 1.0), opacity=0.99
+    ):
+        if points is None:
+            points = np.empty((0, 3))
+        super().__init__(
+            points=points,
+            name=name,
+            scene=scene,
+            color=color,
+            opacity=opacity,
+        )
 
     def _update_points(self):
         """Update the location of the plotted points."""
@@ -281,34 +282,26 @@ class PointObject(Object):
 
     label = Bool(False)
     label_scale = Float(0.01)
-    projectable = Bool(False)
     text3d_labels = List()
     point_scale = Float(10)
-
-    # projection onto a surface
-    nearest = Any()  # _DistanceQuery instance
-    check_inside = Any()  # _CheckInside instance
-    project_to_trans = Any()  # ndarray (4, 4) or None
-    project_to_surface = Bool(False)
-    orient_to_surface = Bool(False)
-    scale_by_distance = Bool(False)
-    mark_inside = Bool(False)
-    inside_color = Any((0.0, 0.0, 0.0))
 
     glyph = Any()  # pyvista Actor for the glyphed points
     resolution = Int(8)
 
-    def __init__(self, view="points", has_norm=False, **kwargs):
-        assert view in ("points", "cloud", "arrow", "oct")
-        self._view = view
-        self._has_norm = bool(has_norm)
-        if "nearest" not in kwargs:
-            kwargs["nearest"] = _DistanceQuery(np.zeros((1, 3)))
-        super().__init__(**kwargs)
-
-    @property
-    def orientable(self):
-        return self.nearest is not None and len(self.nearest.data) > 1
+    def __init__(
+        self,
+        *,
+        points=None,
+        name="",
+        scene=None,
+        color=(1.0, 1.0, 1.0),
+        opacity=0.99,
+        point_scale=10,
+    ):
+        super().__init__(
+            points=points, name=name, scene=scene, color=color, opacity=opacity
+        )
+        self.point_scale = point_scale
 
     @observe("scene")
     def _scene_changed(self, change):
@@ -324,11 +317,8 @@ class PointObject(Object):
 
         if show and self.scene is not None and len(self.points) > 0:
             name = "%s-labels" % (self.name or id(self))
-            if self._view == "arrow":
-                pts, labels = self.points[:1], [self.name]
-            else:
-                pts = self.points
-                labels = [" %i" % i for i in range(len(pts))]
+            pts = self.points
+            labels = [" %i" % i for i in range(len(pts))]
             self.scene.add_point_labels(
                 pts,
                 labels,
@@ -346,40 +336,6 @@ class PointObject(Object):
         if not change["new"]:
             self.label = False
 
-    def _project(self):
-        """Compute the points/normals/scalars to actually render."""
-        pts, nn = self.points, self.nn
-        scalars = None
-        if self._view == "arrow":
-            return pts, nn, scalars
-        nearest = self.nearest
-        if (
-            nearest is None
-            or len(nearest.data) <= 1
-            or len(pts) == 0
-            or self.project_to_trans is None
-        ):
-            return pts, None, scalars
-        inv_trans = np.linalg.inv(self.project_to_trans)
-        proj_rr = apply_trans(inv_trans, pts)
-        idx = nearest.query(proj_rr)[1]
-        proj_pts = apply_trans(self.project_to_trans, nearest.data[idx])
-        proj_nn = apply_trans(
-            self.project_to_trans, self.check_inside.surf["nn"][idx], move=False
-        )
-        if self.project_to_surface:
-            pts = proj_pts
-        if self.mark_inside and not self.project_to_surface:
-            scalars = (~self.check_inside(proj_rr, verbose=False)).astype(float)
-        return pts, proj_nn, scalars
-
-    def _glyph_mode(self):
-        if self._view == "oct":
-            return "oct"
-        if self.project_to_surface or self.orient_to_surface:
-            return "cylinder"
-        return "sphere"
-
     def _plot_points(self):
         """(Re)build the glyphed points and push them to the scene."""
         if self.scene is None:
@@ -389,83 +345,51 @@ class PointObject(Object):
             self.glyph = None
         self.src = None
 
-        pts, nn, scalars = self._project()
+        pts = self.points
         if len(pts) == 0:
             return
 
         import pyvista as pv
+        from vtkmodules.vtkFiltersSources import vtkSphereSource
 
-        cloud = pv.PolyData(np.asarray(pts, float))
-        mode = self._glyph_mode()
-        use_scalars = scalars is not None and mode != "arrow"
-        if use_scalars:
-            # vtkGlyph3D copies point_data through to every point of each
-            # glyph instance, so this becomes a per-glyph-point scalar.
-            cloud.point_data["mark_inside"] = scalars
-
-        if self._view == "arrow":
-            geom = pv.Arrow()
-        else:
-            transform = rotation(0, 0, np.pi / 4) if mode == "oct" else None
-            height = DEFAULTS["coreg"]["eegp_height"] if mode == "cylinder" else None
-            geom = _glyph_geom(
-                mode,
-                resolution=self.resolution,
-                solid_transform=transform,
-                height=height,
-            )
-
-        # Orient by normal for 'arrow' glyphs, or for cylinder glyphs (which
-        # represent sensors sitting flat against the projected surface).
-        orient_by_normal = self._view == "arrow" or mode == "cylinder"
-        if orient_by_normal and nn is not None and len(nn) == len(pts):
-            cloud.point_data["vec"] = nn
-            orient = "vec"
-        else:
-            orient = False
-        mesh = cloud.glyph(
-            orient=orient, scale=False, factor=self.point_scale, geom=geom
+        src = vtkSphereSource()
+        src.SetThetaResolution(self.resolution)
+        src.SetPhiResolution(self.resolution)
+        src.Update()
+        geom = pv.PolyData(src.GetOutput())
+        geom.compute_normals(
+            cell_normals=False,
+            point_normals=True,
+            split_vertices=False,
+            consistent_normals=False,
+            non_manifold_traversal=False,
         )
 
-        kwargs = {
-            "opacity": self.opacity,
-            "culling": "back",
-            "pickable": False,
-            "name": self.name or None,
-            "render": False,
-            "smooth_shading": True,
-        }
-        if use_scalars:
-            from matplotlib.colors import ListedColormap
+        cloud = pv.PolyData(np.asarray(pts, float))
+        mesh = cloud.glyph(
+            orient=False, scale=False, factor=self.point_scale, geom=geom
+        )
 
-            kwargs.update(
-                scalars="mark_inside",
-                cmap=ListedColormap([self.inside_color, self.color]),
-                clim=[0.0, 1.0],
-                show_scalar_bar=False,
-            )
-        else:
-            kwargs["color"] = self.color
-        self.glyph = self.scene.add_mesh(mesh, **kwargs)
+        self.glyph = self.scene.add_mesh(
+            mesh,
+            opacity=self.opacity,
+            culling="back",
+            pickable=False,
+            name=self.name or None,
+            render=False,
+            smooth_shading=True,
+            color=self.color,
+        )
         self.glyph.SetVisibility(self.visible)
         self.src = mesh
         self.scene.render()
 
-    @observe(
-        "points",
-        "project_to_trans",
-        "project_to_surface",
-        "mark_inside",
-        "nearest",
-        "orient_to_surface",
-        "resolution",
-        "scale_by_distance",
-    )
+    @observe("points", "resolution")
     def _update_projections(self, change):
         """Rebuild the glyphed points after a style-affecting change."""
         self._plot_points()
 
-    @observe("color", "inside_color")
+    @observe("color")
     def _color_changed(self, change):
         self._plot_points()
 
@@ -503,10 +427,31 @@ class SurfaceObject(Object):
     surf_rear = Any()  # pyvista Actor (back face, optional)
     rear_opacity = Float(1.0)
 
-    def __init__(self, **kwargs):
-        if "tris" not in kwargs:
-            kwargs["tris"] = np.empty((0, 3), int)
-        super().__init__(**kwargs)
+    def __init__(
+        self,
+        *,
+        points=None,
+        tris=None,
+        name="",
+        scene=None,
+        color=(1.0, 1.0, 1.0),
+        opacity=0.99,
+    ):
+        if points is None:
+            points = np.empty((0, 3))
+        if tris is None:
+            tris = np.empty((0, 3), int)
+        # Bypass Object.__init__ so tris is set in the same HasTraits batch
+        # as scene, ensuring the @observe("scene") plot() sees it already set.
+        HasTraits.__init__(
+            self,
+            points=points,
+            tris=tris,
+            name=name,
+            scene=scene,
+            color=color,
+            opacity=opacity,
+        )
 
     @observe("scene")
     def _scene_changed(self, change):

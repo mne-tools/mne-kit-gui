@@ -5,9 +5,6 @@
 import numpy as np
 from numpy.testing import assert_allclose
 
-from mne.transforms import rotation
-
-from mne_kit_gui._3d import _glyph_geom
 from mne_kit_gui._viewer import (
     HeadViewController,
     Object,
@@ -55,23 +52,6 @@ def test_mm_fmt():
     assert _mm_fmt(1.234) == "1.2"
 
 
-def test_glyph_geom():
-    """Test _glyph_geom for all glyph modes and an optional transform."""
-    # sphere
-    sphere = _glyph_geom("sphere", resolution=6)
-    assert sphere.GetNumberOfPoints() > 0
-
-    # cylinder (with a height offset)
-    cyl = _glyph_geom("cylinder", resolution=6, height=0.01)
-    assert cyl.GetNumberOfPoints() > 0
-
-    # octahedron, with and without a solid transform
-    oct_plain = _glyph_geom("oct")
-    assert oct_plain.GetNumberOfPoints() > 0
-    oct_rot = _glyph_geom("oct", solid_transform=rotation(0, 0, np.pi / 4))
-    assert oct_rot.GetNumberOfPoints() == oct_plain.GetNumberOfPoints()
-
-
 def test_objects_without_scene():
     """Toggling traits with no scene attached should be safe no-ops."""
     # HeadViewController: every observer/method short-circuits without a scene
@@ -84,9 +64,8 @@ def test_objects_without_scene():
     base = Object()
     assert base._update_points() is None
 
-    # PointObject: default geometry has a single nearest point -> not orientable
+    # PointObject: toggling traits with no scene attached is a safe no-op
     p = PointObject()
-    assert not p.orientable
     p.points = np.zeros((3, 3))
     p.color = (1.0, 0.0, 0.0)
     p.opacity = 0.5

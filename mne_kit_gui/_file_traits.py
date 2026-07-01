@@ -170,8 +170,8 @@ class SurfaceSource(HasTraits):
     surf = Any()
     parent = Any()  # QWidget | None, for parenting dialogs
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self):
+        super().__init__()
         self.surf = _empty_surf()
 
     @observe("file")
@@ -287,8 +287,8 @@ class DigSource(HasTraits):
 
     parent = Any()  # QWidget | None, for parenting dialogs
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self):
+        super().__init__()
         self._reset_derived()
 
     def _reset_derived(self):

@@ -123,10 +123,10 @@ class MarkerPoints(HasTraits):
 
     can_save = Bool()
 
-    def __init__(self, **kwargs):
-        if "points" not in kwargs:
-            kwargs["points"] = np.zeros((5, 3))
-        super().__init__(**kwargs)
+    def __init__(self, *, points=None):
+        if points is None:
+            points = np.zeros((5, 3))
+        super().__init__(points=points)
 
     @observe("points")
     def _points_changed(self, change):
@@ -174,10 +174,9 @@ class MarkerPointSource(MarkerPoints):  # noqa: D401
     use = List()  # list of ints 0-4
     enabled = Bool()
 
-    def __init__(self, **kwargs):
-        if "use" not in kwargs:
-            kwargs["use"] = list(range(5))
-        super().__init__(**kwargs)
+    def __init__(self, *, use=None):
+        super().__init__()
+        self.use = use if use is not None else list(range(5))
 
     @observe("file")
     def _file_changed(self, change):
@@ -238,8 +237,8 @@ class MarkerPointDest(MarkerPoints):  # noqa: D401
     method = Unicode("Transform")
     enabled = Bool()
 
-    def __init__(self, src1=None, src2=None, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, *, src1=None, src2=None):
+        super().__init__()
         self.src1 = src1
         self.src2 = src2
 
@@ -376,8 +375,8 @@ class CombineMarkersModel(HasTraits):
     distance = Unicode()
     parent = Any()  # QWidget | None, for parenting dialogs
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self):
+        super().__init__()
         if self.mrk1 is None:
             self.mrk1 = MarkerPointSource()
         if self.mrk2 is None:
@@ -428,12 +427,12 @@ class CombineMarkersPanel(HasTraits):  # noqa: D401
     trans = Any()  # ndarray (4, 4)
     parent = Any()  # QWidget | None, for parenting dialogs
 
-    def __init__(self, **kwargs):
-        if "model" not in kwargs:
-            kwargs["model"] = CombineMarkersModel()
-        if "trans" not in kwargs:
-            kwargs["trans"] = np.eye(4)
-        super().__init__(**kwargs)
+    def __init__(self, *, scene=None, model=None, trans=None, parent=None):
+        if model is None:
+            model = CombineMarkersModel()
+        if trans is None:
+            trans = np.eye(4)
+        super().__init__(scene=scene, model=model, trans=trans, parent=parent)
 
         model = self.model
         model.parent = self.parent
