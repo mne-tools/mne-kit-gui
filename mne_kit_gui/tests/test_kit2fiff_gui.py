@@ -450,7 +450,29 @@ def test_kit2fiff_gui(qtbot, check_gc, tmp_path, monkeypatch, mocker):
     assert_array_equal(mrk1.points, np.zeros((5, 3)))
     assert not clear_btn.isEnabled()
 
+    # --- kit2fiff Sources: file fields, basename labels, Use-mrk checkboxes ---
+    frame.model.sqd_file = str(sqd_path)
+    frame.model.hsp_file = str(hsp_path)
+    frame.model.fid_file = str(fid_path)
+    # path fields and basename labels now mirror the model (were blank before)
+    assert frame._sqd_edit.text() == str(sqd_path)
+    assert frame._hsp_edit.text() == str(hsp_path)
+    assert frame._fid_edit.text() == str(fid_path)
+    assert frame._sqd_fname_label.text() == sqd_path.name
+    assert frame._hsp_fname_label.text() == hsp_path.name
+    assert frame._fid_fname_label.text() == fid_path.name
+    # a Use-mrk checkbox toggles the model (kept >=3 to avoid the marker warning)
+    cb2 = frame.findChild(QCheckBox, "use_mrk_2")
+    assert cb2.isChecked()
+    cb2.setChecked(False)
+    assert 2 not in frame.model.use_mrk
+    frame.model.use_mrk = [0, 1, 2, 3, 4]  # model change syncs the checkbox back
+    assert cb2.isChecked()
+
     frame.model.clear_all()
     assert_array_equal(frame.marker_panel.mrk1_obj.points, 0)
     assert_array_equal(frame.marker_panel.mrk3_obj.points, 0)
+    # clearing also empties the Sources path fields and basename labels
+    assert frame._sqd_edit.text() == ""
+    assert frame._fid_fname_label.text() == "-"
     frame.close()

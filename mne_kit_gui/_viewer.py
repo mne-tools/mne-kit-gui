@@ -170,6 +170,78 @@ class HeadViewController(HasTraits):
         self.scene.render()
 
 
+def build_head_view_group(headview):
+    """Build a Qt "View" group for a :class:`HeadViewController`.
+
+    Parameters
+    ----------
+    headview : HeadViewController
+        The controller whose scene the returned controls drive.
+
+    Returns
+    -------
+    group : QGroupBox
+        A titled group box with the view buttons arranged as a compass (Top
+        centered above Right / Front / Left), plus a scale field and a
+        trackball/terrain interaction selector.
+    """
+    from qtpy.QtWidgets import (
+        QComboBox,
+        QDoubleSpinBox,
+        QGridLayout,
+        QGroupBox,
+        QHBoxLayout,
+        QLabel,
+        QPushButton,
+        QVBoxLayout,
+    )
+
+    group = QGroupBox("View")
+    layout = QVBoxLayout(group)
+
+    # compass-style button grid: Top centered above Right / Front / Left
+    grid = QGridLayout()
+    for name, (r, c) in (
+        ("top", (0, 1)),
+        ("right", (1, 0)),
+        ("front", (1, 1)),
+        ("left", (1, 2)),
+    ):
+        btn = QPushButton(name.capitalize())
+        btn.setObjectName("view_%s" % name)
+        btn.clicked.connect(lambda *_, v=name: headview.on_set_view(v))
+        grid.addWidget(btn, r, c)
+    layout.addLayout(grid)
+
+    # scale field + interaction selector
+    row = QHBoxLayout()
+    row.addWidget(QLabel("Scale:"))
+    scale = QDoubleSpinBox()
+    scale.setObjectName("view_scale")
+    scale.setDecimals(3)
+    scale.setRange(0.0, 1e6)
+    scale.setSingleStep(max(headview.scale / 20.0, 1e-3))
+    scale.setValue(headview.scale)
+    scale.valueChanged.connect(lambda v: setattr(headview, "scale", v))
+    headview.observe(lambda ch: scale.setValue(ch["new"]), names=["scale"])
+    row.addWidget(scale)
+
+    interaction = QComboBox()
+    interaction.setObjectName("view_interaction")
+    interaction.addItems(["trackball", "terrain"])
+    interaction.setCurrentText(headview.interaction)
+    interaction.currentTextChanged.connect(
+        lambda t: setattr(headview, "interaction", t)
+    )
+    headview.observe(
+        lambda ch: interaction.setCurrentText(ch["new"]), names=["interaction"]
+    )
+    row.addWidget(interaction)
+    layout.addLayout(row)
+
+    return group
+
+
 class Object(HasTraits):
     """Represent a 3d object in a pyvista scene."""
 

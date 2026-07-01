@@ -44,7 +44,13 @@ from ._file_traits import (
     MRISubjectSource,
     SubjectSelectorPanel,
 )
-from ._viewer import HeadViewController, PointObject, SurfaceObject, embed_pyvista_scene
+from ._viewer import (
+    HeadViewController,
+    PointObject,
+    SurfaceObject,
+    build_head_view_group,
+    embed_pyvista_scene,
+)
 
 defaults = DEFAULTS["coreg"]
 
@@ -464,19 +470,8 @@ class FiducialsFrame(QMainWindow):
         ctrl_layout = QVBoxLayout(ctrl)
         main_layout.addWidget(ctrl, stretch=1)
 
-        # Head view buttons
-        vg = QGroupBox("View")
-        vg_layout = QVBoxLayout(vg)
-        for label, view_name in [
-            ("Front", "front"),
-            ("Left", "left"),
-            ("Right", "right"),
-            ("Top", "top"),
-        ]:
-            btn = QPushButton(label)
-            btn.clicked.connect(lambda _, v=view_name: self.headview.on_set_view(v))
-            vg_layout.addWidget(btn)
-        ctrl_layout.addWidget(vg)
+        # Head view controls (compass buttons + scale + interaction)
+        ctrl_layout.addWidget(build_head_view_group(self.headview))
 
         # Subject selector
         sg = QGroupBox("Subject")

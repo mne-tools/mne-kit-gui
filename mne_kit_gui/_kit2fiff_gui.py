@@ -55,7 +55,12 @@ from mne.utils import get_config, set_config, logger, warn
 
 from ._marker_gui import CombineMarkersPanel, CombineMarkersModel
 from ._help import read_tooltips
-from ._viewer import HeadViewController, PointObject, embed_pyvista_scene
+from ._viewer import (
+    HeadViewController,
+    PointObject,
+    build_head_view_group,
+    embed_pyvista_scene,
+)
 
 
 hsp_wildcard = "Head Shape Points (*.hsp *.txt)"
@@ -722,9 +727,13 @@ class Kit2FiffFrame(QMainWindow):
                 "stim_chs_ok",
                 "stim_chs_comment",
                 "misc_chs_desc",
+                "sqd_file",
+                "hsp_file",
+                "fid_file",
                 "sqd_fname",
                 "hsp_fname",
                 "fid_fname",
+                "use_mrk",
             ],
         )
         self._update_ui_state()
@@ -741,18 +750,10 @@ class Kit2FiffFrame(QMainWindow):
         # ---- left column: marker panel ----
         outer.addLayout(self._build_marker_column(), stretch=1)
 
-        # ---- center: scene + head view buttons ----
+        # ---- center: scene + head view controls ----
         center = QVBoxLayout()
         center.addWidget(self._scene_widget, stretch=4)
-        for label, view in [
-            ("Front", "front"),
-            ("Left", "left"),
-            ("Right", "right"),
-            ("Top", "top"),
-        ]:
-            btn = QPushButton(label)
-            btn.clicked.connect(lambda _, v=view: self.headview.on_set_view(v))
-            center.addWidget(btn)
+        center.addWidget(build_head_view_group(self.headview))
         outer.addLayout(center, stretch=2)
 
         # ---- right column: kit2fiff panel ----
@@ -964,6 +965,7 @@ class Kit2FiffFrame(QMainWindow):
 
         row = QHBoxLayout()
         self._sqd_edit = QLineEdit()
+        self._sqd_edit.setReadOnly(True)
         self._sqd_edit.setPlaceholderText("KIT data file...")
         sqd_btn = QPushButton("Browse")
         sqd_btn.clicked.connect(
@@ -982,6 +984,8 @@ class Kit2FiffFrame(QMainWindow):
 
         row2 = QHBoxLayout()
         self._hsp_edit = QLineEdit()
+        self._hsp_edit.setReadOnly(True)
+        self._hsp_edit.setPlaceholderText("Digitizer head shape...")
         hsp_btn = QPushButton("Browse")
         hsp_btn.clicked.connect(
             lambda: self._browse_file(
@@ -994,9 +998,13 @@ class Kit2FiffFrame(QMainWindow):
         row2.addWidget(self._hsp_edit)
         row2.addWidget(hsp_btn)
         sg_layout.addLayout(row2)
+        self._hsp_fname_label = QLabel("-")
+        sg_layout.addWidget(self._hsp_fname_label)
 
         row3 = QHBoxLayout()
         self._fid_edit = QLineEdit()
+        self._fid_edit.setReadOnly(True)
+        self._fid_edit.setPlaceholderText("Digitizer fiducials...")
         fid_btn = QPushButton("Browse")
         fid_btn.clicked.connect(
             lambda: self._browse_file(
@@ -1009,6 +1017,8 @@ class Kit2FiffFrame(QMainWindow):
         row3.addWidget(self._fid_edit)
         row3.addWidget(fid_btn)
         sg_layout.addLayout(row3)
+        self._fid_fname_label = QLabel("-")
+        sg_layout.addWidget(self._fid_fname_label)
 
         clear_dig_btn = QPushButton("Clear Digitizer Files")
         clear_dig_btn.clicked.connect(
@@ -1018,6 +1028,21 @@ class Kit2FiffFrame(QMainWindow):
             ]
         )
         sg_layout.addWidget(clear_dig_btn)
+
+        # "Use mrk" checkboxes: which marker points feed the dev->head transform
+        use_row = QHBoxLayout()
+        use_row.addWidget(QLabel("Use mrk:"))
+        self._use_mrk_checks = []
+        for i in range(5):
+            cb = QCheckBox(str(i))
+            cb.setObjectName("use_mrk_%i" % i)
+            cb.setChecked(i in self.model.use_mrk)
+            cb.toggled.connect(
+                lambda checked, idx=i: self._toggle_use_mrk(idx, checked)
+            )
+            use_row.addWidget(cb)
+            self._use_mrk_checks.append(cb)
+        sg_layout.addLayout(use_row)
         layout.addWidget(sg)
 
         # Events group
@@ -1107,7 +1132,26 @@ class Kit2FiffFrame(QMainWindow):
         self._misc_chs_label.setText(model.misc_chs_desc)
         self._stim_comment_label.setText(model.stim_chs_comment)
         if hasattr(self, "_sqd_fname_label"):
+            # keep the path fields, basename labels, and marker checkboxes in
+            # sync with the model (e.g. after loading files or clear_all)
+            self._sqd_edit.setText(model.sqd_file)
+            self._hsp_edit.setText(model.hsp_file)
+            self._fid_edit.setText(model.fid_file)
             self._sqd_fname_label.setText(model.sqd_fname)
+            self._hsp_fname_label.setText(model.hsp_fname)
+            self._fid_fname_label.setText(model.fid_fname)
+            for idx, cb in enumerate(self._use_mrk_checks):
+                cb.blockSignals(True)
+                cb.setChecked(idx in model.use_mrk)
+                cb.blockSignals(False)
+
+    def _toggle_use_mrk(self, idx, checked):
+        use = set(self.model.use_mrk)
+        if checked:
+            use.add(idx)
+        else:
+            use.discard(idx)
+        self.model.use_mrk = sorted(use)
 
     # ------------------------------------------------------------------
     # Config persistence / window lifecycle
