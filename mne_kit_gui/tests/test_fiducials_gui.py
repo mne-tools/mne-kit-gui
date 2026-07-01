@@ -160,15 +160,19 @@ def test_fiducials_frame(qtbot, check_gc, mocker, tmp_path):
 
     pt = frame.mri_obj.points[100]
 
-    # picking while fiducials are locked should be ignored
+    # picking while fiducials are locked should be ignored, and the editing
+    # groups should be disabled
     before = frame.model.lpa.copy()
     frame.model.lock_fiducials = True
+    assert all(not g.isEnabled() for g in frame._lockable_groups)
     fake_picker = _FakePicker(frame)
     frame.panel._on_pick(pt, fake_picker)
     assert_array_equal(frame.model.lpa, before)
 
-    # an empty pick (no intersection) should be ignored without raising
+    # an empty pick (no intersection) should be ignored without raising, and
+    # unlocking re-enables the editing groups
     frame.model.lock_fiducials = False
+    assert all(g.isEnabled() for g in frame._lockable_groups)
     frame.panel._on_pick(None, fake_picker)
     assert_array_equal(frame.model.lpa, before)
 
@@ -205,6 +209,17 @@ def test_fiducials_frame(qtbot, check_gc, mocker, tmp_path):
     mock_msgbox.question.assert_called_once()
     mock_fd.getSaveFileName.return_value = ("", "")
     frame.panel.save_as()  # empty selection is a no-op
+
+    # the fiducials-file field mirrors the model, and Browse loads a file
+    assert frame._fid_file_edit.text() == frame.model.fid_file
+    saved_fif = str(tmp_path / "out_fids.fif")
+    mock_fd.getOpenFileName.return_value = (saved_fif, "")
+    frame.findChild(QPushButton, "fid_file_browse").click()
+    assert frame.model.fid_file == saved_fif
+    assert frame._fid_file_edit.text() == saved_fif
+    mock_fd.getOpenFileName.return_value = ("", "")  # cancelled -> no-op
+    frame.findChild(QPushButton, "fid_file_browse").click()
+    assert frame.model.fid_file == saved_fif
 
     # closing with unsaved changes prompts; answer "Discard" so it still closes
     mock_msgbox.question.reset_mock()

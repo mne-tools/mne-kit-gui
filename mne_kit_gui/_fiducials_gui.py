@@ -559,6 +559,23 @@ class FiducialsFrame(QMainWindow):
         # Save / reset buttons
         bg = QGroupBox("File")
         bg_layout = QVBoxLayout(bg)
+
+        # fiducials file path (read-only, mirrors the model) + browse
+        fid_row = QHBoxLayout()
+        self._fid_file_edit = QLineEdit(self.model.fid_file)
+        self._fid_file_edit.setObjectName("fid_file")
+        self._fid_file_edit.setReadOnly(True)
+        self._fid_file_edit.setPlaceholderText("Fiducials file...")
+        self.model.observe(
+            lambda ch: self._fid_file_edit.setText(ch["new"]), names=["fid_file"]
+        )
+        fid_browse = QPushButton("Browse")
+        fid_browse.setObjectName("fid_file_browse")
+        fid_browse.clicked.connect(self._browse_fid_file)
+        fid_row.addWidget(self._fid_file_edit)
+        fid_row.addWidget(fid_browse)
+        bg_layout.addLayout(fid_row)
+
         self._save_btn = QPushButton("Save")
         self._save_btn.clicked.connect(lambda: self.model.save())
         self._save_as_btn = QPushButton("Save As...")
@@ -575,6 +592,11 @@ class FiducialsFrame(QMainWindow):
             self._update_buttons, names=["can_save", "can_save_as", "can_reset"]
         )
         self._update_buttons()
+
+        # The editing controls are disabled while the fiducials are locked
+        self._lockable_groups = [fg, pg, bg]
+        self.model.observe(self._update_lock_state, names=["lock_fiducials"])
+        self._update_lock_state()
 
         ctrl_layout.addStretch()
         self.resize(900, 700)
@@ -593,6 +615,18 @@ class FiducialsFrame(QMainWindow):
         path = QFileDialog.getExistingDirectory(self, "Select SUBJECTS_DIR")
         if path:
             self.spanel.subjects_dir = path
+
+    def _browse_fid_file(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select Fiducials File", "", "Fiducials (*.fif)"
+        )
+        if path:
+            self.model.fid_file = path
+
+    def _update_lock_state(self, change=None):
+        enabled = not self.model.lock_fiducials
+        for group in self._lockable_groups:
+            group.setEnabled(enabled)
 
     def _create_fsaverage(self):
         try:
