@@ -121,7 +121,7 @@ zip-safe = false
 include-package-data = false
 
 [tool.setuptools.package-data]
-mne_kit_gui = ["help/*.json"]
+mne_kit_gui = ["help/*.json", "py.typed"]
 
 [tool.setuptools.packages.find]
 include = ["mne_kit_gui*"]
