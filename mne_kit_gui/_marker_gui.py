@@ -1,146 +1,172 @@
-"""Mayavi/traits GUI for averaging two sets of KIT marker points."""
+"""Traitlets/Qt GUI for averaging two sets of KIT marker points."""
 
 # Authors: Christian Brodbeck <christianbrodbeck@nyu.edu>
 #
 # License: BSD-3-Clause
 
 import datetime
-import os
-import sys
+from pathlib import Path
 
 import numpy as np
+from pyvistaqt import QtInteractor
 
-from mayavi.tools.mlab_scene_model import MlabSceneModel
-from pyface.api import confirm, error, FileDialog, OK, YES
-from traits.api import (HasTraits, HasPrivateTraits, on_trait_change,
-                        cached_property, Instance, Property, Array, Bool,
-                        Button, Enum, File, Float, List, Str, ArrayOrNone)
-from traitsui.api import View, Item, HGroup, VGroup, CheckListEditor
-from traitsui.menu import Action, CancelButton
+from qtpy.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
+    QDoubleSpinBox,
+    QFileDialog,
+    QGridLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QVBoxLayout,
+    QWidget,
+)
+
+from traitlets import Bool, Bunch, Float, HasTraits, Any, List, Unicode, observe
 
 from mne.transforms import apply_trans, rotation, translation
 from mne.coreg import fit_matched_points
 from mne.io.kit import read_mrk
 
 from ._viewer import PointObject
-from ._backend import _get_pyface_backend
 
 
-if _get_pyface_backend() == 'wx':
-    mrk_wildcard = [
-        'Supported Files (*.sqd, *.mrk, *.txt, *.pickled)|*.sqd;*.mrk;*.txt;*.pickled',  # noqa:E501
-        'Sqd marker file (*.sqd;*.mrk)|*.sqd;*.mrk',
-        'Text marker file (*.txt)|*.txt',
-        'Pickled markers (*.pickled)|*.pickled']
-    mrk_out_wildcard = ["Tab separated values file (*.txt)|*.txt"]
-else:
-    if sys.platform in ('win32', 'linux2'):
-        # on Windows and Ubuntu, multiple wildcards does not seem to work
-        mrk_wildcard = ["*.sqd", "*.mrk", "*.txt", "*.pickled"]
-    else:
-        mrk_wildcard = ["*.sqd;*.mrk;*.txt;*.pickled"]
-    mrk_out_wildcard = "*.txt"
-out_ext = '.txt'
+mrk_wildcard = (
+    "Supported Files (*.sqd *.mrk *.txt *.pickled);;"
+    "Sqd marker file (*.sqd *.mrk);;"
+    "Text marker file (*.txt);;"
+    "Pickled markers (*.pickled)"
+)
+mrk_out_wildcard = "Tab separated values file (*.txt)"
+out_ext = ".txt"
 
 
-use_editor_v = CheckListEditor(cols=1, values=[(i, str(i)) for i in range(5)])
-use_editor_h = CheckListEditor(cols=5, values=[(i, str(i)) for i in range(5)])
+class ReorderDialog(QDialog):
+    """Dialog for entering a new marker point order."""
 
-mrk_view_editable = View(
-    VGroup('file',
-           Item('name', show_label=False, style='readonly'),
-           HGroup(
-               Item('use', editor=use_editor_v, enabled_when="enabled",
-                    style='custom'),
-               'points',
-           ),
-           HGroup(Item('clear', enabled_when="can_save", show_label=False),
-                  Item('save_as', enabled_when="can_save",
-                       show_label=False)),
-           ))
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Reorder Marker Points")
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("New order (five space-delimited numbers 0–4):"))
+        self._edit = QLineEdit("0 1 2 3 4")
+        layout.addWidget(self._edit)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel,  # ty: ignore[unresolved-attribute]
+            parent=self,
+        )
+        buttons.accepted.connect(self._try_accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
 
-mrk_view_basic = View(
-    VGroup('file',
-           Item('name', show_label=False, style='readonly'),
-           Item('use', editor=use_editor_h, enabled_when="enabled",
-                style='custom'),
-           HGroup(Item('clear', enabled_when="can_save", show_label=False),
-                  Item('edit', show_label=False),
-                  Item('switch_left_right', label="Switch Left/Right",
-                       show_label=False),
-                  Item('reorder', show_label=False),
-                  Item('save_as', enabled_when="can_save",
-                       show_label=False)),
-           ))
+    def _try_accept(self) -> None:
+        if self.index is not None:
+            self.accept()
+        else:
+            QMessageBox.warning(
+                self, "Invalid Input", "Enter exactly five distinct numbers 0–4."
+            )
 
-mrk_view_edit = View(VGroup('points'))
-
-
-class ReorderDialog(HasPrivateTraits):
-    """Dialog for reordering marker points."""
-
-    order = Str("0 1 2 3 4")
-    index = Property(List, depends_on='order')
-    is_ok = Property(Bool, depends_on='order')
-
-    view = View(
-        Item('order', label='New order (five space delimited numbers)'),
-        buttons=[CancelButton, Action(name='OK', enabled_when='is_ok')])
-
-    def _get_index(self):
+    @property
+    def index(self) -> list[int] | None:
         try:
-            return [int(i) for i in self.order.split()]
+            idx = [int(i) for i in self._edit.text().split()]
         except ValueError:
-            return []
+            return None
+        if sorted(idx) == [0, 1, 2, 3, 4]:
+            return idx
+        return None
 
-    def _get_is_ok(self):
-        return sorted(self.index) == [0, 1, 2, 3, 4]
+
+class EditPointsDialog(QDialog):
+    """Dialog for manually editing the five marker point coordinates."""
+
+    def __init__(self, points: np.ndarray, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Edit Marker Points")
+        layout = QVBoxLayout(self)
+        grid = QGridLayout()
+        for col, head in enumerate(("x", "y", "z")):
+            grid.addWidget(QLabel(head), 0, col + 1)
+        self._spins: list[list[QDoubleSpinBox]] = []
+        for r in range(5):
+            grid.addWidget(QLabel(str(r)), r + 1, 0)
+            row = []
+            for c in range(3):
+                spin = QDoubleSpinBox()
+                spin.setDecimals(6)
+                spin.setRange(-1.0, 1.0)
+                spin.setSingleStep(1e-3)
+                spin.setValue(float(points[r, c]))
+                grid.addWidget(spin, r + 1, c + 1)
+                row.append(spin)
+            self._spins.append(row)
+        layout.addLayout(grid)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel,  # ty: ignore[unresolved-attribute]
+            parent=self,
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    @property
+    def points(self) -> np.ndarray:
+        """The edited points as an (5, 3) array."""
+        return np.array([[spin.value() for spin in row] for row in self._spins], float)
 
 
-class MarkerPoints(HasPrivateTraits):
+class MarkerPoints(HasTraits):
     """Represent 5 marker points."""
 
-    points = Array(float, (5, 3))
+    points = Any()  # ndarray (5, 3)
+    name = Unicode()
+    dir = Unicode()
+    parent = Any()  # QWidget | None, for parenting dialogs
 
-    can_save = Property(depends_on='points')
-    save_as = Button()
+    can_save = Bool()
 
-    view = View(VGroup('points',
-                       Item('save_as', enabled_when='can_save')))
+    def __init__(self, *, points: np.ndarray | None = None) -> None:
+        if points is None:
+            points = np.zeros((5, 3))
+        super().__init__(points=points)
 
-    @cached_property
-    def _get_can_save(self):
-        return np.any(self.points)
+    @observe("points")
+    def _points_changed(self, change: Bunch) -> None:
+        pts = change["new"]
+        self.can_save = bool(pts is not None and np.any(pts))
 
-    def _save_as_fired(self):
-        dlg = FileDialog(action="save as", wildcard=mrk_out_wildcard,
-                         default_filename=self.name,
-                         default_directory=self.dir)
-        dlg.open()
-        if dlg.return_code != OK:
+    def save_as(self) -> None:
+        """Prompt user for a save path and save the marker points."""
+        parent = self.parent
+        path, _ = QFileDialog.getSaveFileName(
+            parent, "Save Markers", self.name or "", mrk_out_wildcard
+        )
+        if not path:
             return
 
-        path, ext = os.path.splitext(dlg.path)
-        if not path.endswith(out_ext) and len(ext) != 0:
-            ValueError("The extension '%s' is not supported." % ext)
-        path = path + out_ext
+        path = Path(path)
+        if path.suffix != out_ext:
+            path = path.with_suffix(out_ext)
 
-        if os.path.exists(path):
-            answer = confirm(None, "The file %r already exists. Should it "
-                             "be replaced?", "Overwrite File?")
-            if answer != YES:
+        if path.exists():
+            reply = QMessageBox.question(
+                parent,
+                "Overwrite File?",
+                "The file %r already exists. Should it be replaced?" % str(path),
+            )
+            if reply != QMessageBox.Yes:  # ty: ignore[unresolved-attribute]
                 return
         self.save(path)
 
-    def save(self, path):
+    def save(self, path: str | Path) -> None:
         """Save the marker points.
 
         Parameters
         ----------
         path : str
-            Path to the file to write. The kind of file to write is determined
-            based on the extension: '.txt' for tab separated text file,
-            '.pickled' for pickled file.
+            Path to the file. Extension '.txt' writes a tab-separated file.
         """
         _write_dig_points(path, self.points)
 
@@ -148,315 +174,348 @@ class MarkerPoints(HasPrivateTraits):
 class MarkerPointSource(MarkerPoints):  # noqa: D401
     """MarkerPoints subclass for source files."""
 
-    file = File(filter=mrk_wildcard, exists=True)
-    name = Property(Str, depends_on='file')
-    dir = Property(Str, depends_on='file')
+    file = Unicode()
+    use = List()  # list of ints 0-4
+    enabled = Bool()
 
-    use = List(list(range(5)), desc="Which points to use for the interpolated "
-               "marker.")
-    enabled = Property(Bool, depends_on=['points', 'use'])
-    clear = Button(desc="Clear the current marker data")
-    edit = Button(desc="Edit the marker coordinates manually")
-    switch_left_right = Button(
-        desc="Switch left and right marker points; this is intended to "
-             "correct for markers that were attached in the wrong order")
-    reorder = Button(desc="Change the order of the marker points")
+    def __init__(self, *, use: list[int] | None = None) -> None:
+        super().__init__()
+        self.use = use if use is not None else list(range(5))
 
-    view = mrk_view_basic
+    @observe("file")
+    def _file_changed(self, change: Bunch) -> None:
+        fname = change["new"]
+        if fname:
+            path = Path(fname)
+            self.name = path.name
+            self.dir = str(path.parent)
+        else:
+            self.name = ""
+            self.dir = ""
+        self._load(fname)
 
-    @cached_property
-    def _get_enabled(self):
-        return np.any(self.points)
-
-    @cached_property
-    def _get_dir(self):
-        if self.file:
-            return os.path.dirname(self.file)
-
-    @cached_property
-    def _get_name(self):
-        if self.file:
-            return os.path.basename(self.file)
-
-    @on_trait_change('file')
-    def load(self, fname):
+    def _load(self, fname: str) -> None:
         if not fname:
-            self.reset_traits(['points'])
+            self.points = np.zeros((5, 3))
             return
-
         try:
             pts = read_mrk(fname)
         except Exception as err:
-            error(None, str(err), "Error Reading mrk")
-            self.reset_traits(['points'])
+            QMessageBox.critical(self.parent, "Error Reading mrk", str(err))
+            self.points = np.zeros((5, 3))
         else:
             self.points = pts
 
-    def _clear_fired(self):
-        self.reset_traits(['file', 'points', 'use'])
+    @observe("points", "use")
+    def _update_enabled(self, change: Bunch) -> None:
+        self.enabled = bool(np.any(self.points))
 
-    def _edit_fired(self):
-        self.edit_traits(view=mrk_view_edit)
+    def clear(self) -> None:
+        """Clear all marker data."""
+        self.file = ""
+        self.points = np.zeros((5, 3))
+        self.use = list(range(5))
 
-    def _reorder_fired(self):
-        dlg = ReorderDialog()
-        ui = dlg.edit_traits(kind='modal')
-        if not ui.result:  # user pressed cancel
-            return
-        self.points = self.points[dlg.index]
+    def edit(self) -> None:
+        """Open a dialog for manual coordinate entry."""
+        dlg = EditPointsDialog(self.points, self.parent)
+        if dlg.exec_() == QDialog.Accepted:  # ty: ignore[unresolved-attribute]
+            self.points = dlg.points
 
-    def _switch_left_right_fired(self):
+    def reorder(self) -> None:
+        """Prompt for a new point order and apply it."""
+        dlg = ReorderDialog(self.parent)
+        if dlg.exec_() == QDialog.Accepted and dlg.index is not None:  # ty: ignore[unresolved-attribute]
+            self.points = self.points[dlg.index]
+
+    def switch_left_right(self) -> None:
+        """Swap left and right marker points."""
         self.points = self.points[[1, 0, 2, 4, 3]]
 
 
 class MarkerPointDest(MarkerPoints):  # noqa: D401
-    """MarkerPoints subclass that serves for derived points."""
+    """MarkerPoints subclass that serves for derived/interpolated points."""
 
-    src1 = Instance(MarkerPointSource)
-    src2 = Instance(MarkerPointSource)
+    src1 = Any()  # MarkerPointSource
+    src2 = Any()  # MarkerPointSource
+    method = Unicode("Transform")
+    enabled = Bool()
 
-    name = Property(Str, depends_on='src1.name,src2.name')
-    dir = Property(Str, depends_on='src1.dir,src2.dir')
+    def __init__(
+        self,
+        *,
+        src1: MarkerPointSource | None = None,
+        src2: MarkerPointSource | None = None,
+    ) -> None:
+        super().__init__()
+        self.src1 = src1
+        self.src2 = src2
 
-    points = Property(ArrayOrNone(float, (5, 3)),
-                      depends_on=['method', 'src1.points', 'src1.use',
-                                  'src2.points', 'src2.use'])
-    enabled = Property(Bool, depends_on=['points'])
+    @observe("src1")
+    def _src1_changed(self, change: Bunch) -> None:
+        old = change["old"]
+        new = change["new"]
+        if old is not None:
+            old.unobserve(
+                self._src_attr_changed,
+                names=["points", "use", "name", "dir", "enabled"],
+            )
+        if new is not None:
+            new.observe(
+                self._src_attr_changed,
+                names=["points", "use", "name", "dir", "enabled"],
+            )
+        self._recompute()
 
-    method = Enum('Transform', 'Average', desc="Transform: estimate a rotation"
-                  "/translation from mrk1 to mrk2; Average: use the average "
-                  "of the mrk1 and mrk2 coordinates for each point.")
+    @observe("src2")
+    def _src2_changed(self, change: Bunch) -> None:
+        old = change["old"]
+        new = change["new"]
+        if old is not None:
+            old.unobserve(
+                self._src_attr_changed,
+                names=["points", "use", "name", "dir", "enabled"],
+            )
+        if new is not None:
+            new.observe(
+                self._src_attr_changed,
+                names=["points", "use", "name", "dir", "enabled"],
+            )
+        self._recompute()
 
-    view = View(VGroup(Item('method', style='custom'),
-                       Item('save_as', enabled_when='can_save',
-                            show_label=False)))
+    def _src_attr_changed(self, change: Bunch) -> None:
+        """React to any change on src1 or src2."""
+        if change["name"] in ("name", "dir"):
+            self._update_name_dir()
+        else:
+            self._recompute()
 
-    @cached_property
-    def _get_dir(self):
-        return self.src1.dir
-
-    @cached_property
-    def _get_name(self):
-        n1 = self.src1.name
-        n2 = self.src2.name
+    def _update_name_dir(self) -> None:
+        n1 = self.src1.name if self.src1 else ""
+        n2 = self.src2.name if self.src2 else ""
+        self.dir = self.src1.dir if self.src1 else ""
 
         if not n1:
-            if n2:
-                return n2
-            else:
-                return ''
+            self.name = n2
         elif not n2:
-            return n1
-
-        if n1 == n2:
-            return n1
-
-        i = 0
-        l1 = len(n1) - 1
-        l2 = len(n1) - 2
-        while n1[i] == n2[i]:
-            if i == l1:
-                return n1
-            elif i == l2:
-                return n2
-
-            i += 1
-
-        return n1[:i]
-
-    @cached_property
-    def _get_enabled(self):
-        return np.any(self.points)
-
-    @cached_property
-    def _get_points(self):
-        # in case only one or no source is enabled
-        if not (self.src1 and self.src1.enabled):
-            if (self.src2 and self.src2.enabled):
-                return self.src2.points
-            else:
-                return np.zeros((5, 3))
-        elif not (self.src2 and self.src2.enabled):
-            return self.src1.points
-
-        # Average method
-        if self.method == 'Average':
-            if len(np.union1d(self.src1.use, self.src2.use)) < 5:
-                error(None, "Need at least one source for each point.",
-                      "Marker Average Error")
-                return np.zeros((5, 3))
-
-            pts = (self.src1.points + self.src2.points) / 2.
-            for i in np.setdiff1d(self.src1.use, self.src2.use):
-                pts[i] = self.src1.points[i]
-            for i in np.setdiff1d(self.src2.use, self.src1.use):
-                pts[i] = self.src2.points[i]
-
-            return pts
-
-        # Transform method
-        idx = np.intersect1d(np.array(self.src1.use),
-                             np.array(self.src2.use), assume_unique=True)
-        if len(idx) < 3:
-            error(None, "Need at least three shared points for trans"
-                  "formation.", "Marker Interpolation Error")
-            return np.zeros((5, 3))
-
-        src_pts = self.src1.points[idx]
-        tgt_pts = self.src2.points[idx]
-        est = fit_matched_points(src_pts, tgt_pts, out='params')
-        rot = np.array(est[:3]) / 2.
-        tra = np.array(est[3:]) / 2.
-
-        if len(self.src1.use) == 5:
-            trans = np.dot(translation(*tra), rotation(*rot))
-            pts = apply_trans(trans, self.src1.points)
-        elif len(self.src2.use) == 5:
-            trans = np.dot(translation(* -tra), rotation(* -rot))
-            pts = apply_trans(trans, self.src2.points)
+            self.name = n1
+        elif n1 == n2:
+            self.name = n1
         else:
-            trans1 = np.dot(translation(*tra), rotation(*rot))
-            pts = apply_trans(trans1, self.src1.points)
-            trans2 = np.dot(translation(* -tra), rotation(* -rot))
-            for i in np.setdiff1d(self.src2.use, self.src1.use):
-                pts[i] = apply_trans(trans2, self.src2.points[i])
+            i = 0
+            while i < min(len(n1), len(n2)) and n1[i] == n2[i]:
+                i += 1
+            self.name = n1[:i]
 
+    @observe("method")
+    def _method_changed(self, change: Bunch) -> None:
+        self._recompute()
+
+    def _recompute(self) -> None:
+        self.points = self._compute_points()
+        self.enabled = bool(self.points is not None and np.any(self.points))
+
+    def _compute_points(self) -> np.ndarray:
+        src1, src2 = self.src1, self.src2
+
+        if not (src1 and src1.enabled):
+            if src2 and src2.enabled:
+                return src2.points
+            return np.zeros((5, 3))
+        elif not (src2 and src2.enabled):
+            return src1.points
+
+        if self.method == "Average":
+            return self._compute_points_average(src1, src2)
+        return self._compute_points_transform(src1, src2)
+
+    def _compute_points_average(
+        self, src1: MarkerPointSource, src2: MarkerPointSource
+    ) -> np.ndarray:
+        if len(np.union1d(src1.use, src2.use)) < 5:
+            QMessageBox.critical(
+                self.parent,
+                "Marker Average Error",
+                "Need at least one source for each point.",
+            )
+            return np.zeros((5, 3))
+        pts = (src1.points + src2.points) / 2.0
+        for i in np.setdiff1d(src1.use, src2.use):
+            pts[i] = src1.points[i]
+        for i in np.setdiff1d(src2.use, src1.use):
+            pts[i] = src2.points[i]
         return pts
 
+    def _compute_points_transform(
+        self, src1: MarkerPointSource, src2: MarkerPointSource
+    ) -> np.ndarray:
+        idx = np.intersect1d(np.array(src1.use), np.array(src2.use), assume_unique=True)
+        if len(idx) < 3:
+            QMessageBox.critical(
+                self.parent,
+                "Marker Interpolation Error",
+                "Need at least three shared points for transformation.",
+            )
+            return np.zeros((5, 3))
 
-class CombineMarkersModel(HasPrivateTraits):
+        src_pts = src1.points[idx]
+        tgt_pts = src2.points[idx]
+        est = fit_matched_points(src_pts, tgt_pts, out="params")
+        rot = np.array(est[:3]) / 2.0
+        tra = np.array(est[3:]) / 2.0
+
+        if len(src1.use) == 5:
+            trans = np.dot(translation(*tra), rotation(*rot))
+            return apply_trans(trans, src1.points)
+        elif len(src2.use) == 5:
+            trans = np.dot(translation(*-tra), rotation(*-rot))
+            return apply_trans(trans, src2.points)
+        else:
+            trans1 = np.dot(translation(*tra), rotation(*rot))
+            pts = apply_trans(trans1, src1.points)
+            trans2 = np.dot(translation(*-tra), rotation(*-rot))
+            for i in np.setdiff1d(src2.use, src1.use):
+                pts[i] = apply_trans(trans2, src2.points[i])
+            return pts
+
+
+class CombineMarkersModel(HasTraits):
     """Combine markers model."""
 
-    mrk1_file = Instance(File)
-    mrk2_file = Instance(File)
-    mrk1 = Instance(MarkerPointSource)
-    mrk2 = Instance(MarkerPointSource)
-    mrk3 = Instance(MarkerPointDest)
+    mrk1 = Any()  # MarkerPointSource
+    mrk2 = Any()  # MarkerPointSource
+    mrk3 = Any()  # MarkerPointDest
+    distance = Unicode()
+    parent = Any()  # QWidget | None, for parenting dialogs
 
-    clear = Button(desc="Clear the current marker data")
+    def __init__(self) -> None:
+        super().__init__()
+        if self.mrk1 is None:
+            self.mrk1 = MarkerPointSource()
+        if self.mrk2 is None:
+            self.mrk2 = MarkerPointSource()
+        if self.mrk3 is None:
+            self.mrk3 = MarkerPointDest(src1=self.mrk1, src2=self.mrk2)
+        for sub_model in (self.mrk1, self.mrk2, self.mrk3):
+            sub_model.parent = self.parent
+        self.mrk1.observe(self._update_distance, names=["points"])
+        self.mrk2.observe(self._update_distance, names=["points"])
 
-    # stats
-    distance = Property(Str, depends_on=['mrk1.points', 'mrk2.points'])
+    @observe("parent")
+    def _parent_changed(self, change: Bunch) -> None:
+        for sub_model in (self.mrk1, self.mrk2, self.mrk3):
+            sub_model.parent = change["new"]
 
-    def _clear_fired(self):
-        self.mrk1.clear = True
-        self.mrk2.clear = True
-        self.mrk3.reset_traits(['method'])
-
-    def _mrk1_default(self):
-        return MarkerPointSource()
-
-    def _mrk1_file_default(self):
-        return self.mrk1.trait('file')
-
-    def _mrk2_default(self):
-        return MarkerPointSource()
-
-    def _mrk2_file_default(self):
-        return self.mrk2.trait('file')
-
-    def _mrk3_default(self):
-        return MarkerPointDest(src1=self.mrk1, src2=self.mrk2)
-
-    @cached_property
-    def _get_distance(self):
-        if (self.mrk1 is None or self.mrk2 is None or
-                (not np.any(self.mrk1.points)) or
-                (not np.any(self.mrk2.points))):
-            return ""
-
+    def _update_distance(self, change: Bunch | None = None) -> None:
+        if not np.any(self.mrk1.points) or not np.any(self.mrk2.points):
+            self.distance = ""
+            return
         ds = np.sqrt(np.sum((self.mrk1.points - self.mrk2.points) ** 2, 1))
-        desc = '\t'.join('%.1f mm' % (d * 1000) for d in ds)
-        return desc
+        self.distance = "\t".join("%.1f mm" % (d * 1000) for d in ds)
+
+    def clear(self) -> None:
+        """Clear all marker data."""
+        self.mrk1.clear()
+        self.mrk2.clear()
+        self.mrk3.method = "Transform"
 
 
 class CombineMarkersPanel(HasTraits):  # noqa: D401
-    """Has two marker points sources and interpolates to a third one."""
+    """Has two marker point sources and interpolates to a third one."""
 
-    model = Instance(CombineMarkersModel, ())
+    model = Any()  # CombineMarkersModel
 
-    # model references for UI
-    mrk1 = Instance(MarkerPointSource)
-    mrk2 = Instance(MarkerPointSource)
-    mrk3 = Instance(MarkerPointDest)
-    distance = Str
+    # model mirrors for convenient access
+    mrk1 = Any()
+    mrk2 = Any()
+    mrk3 = Any()
+    distance = Unicode()
 
     # Visualization
-    scene = Instance(MlabSceneModel)
+    scene = Any()  # pyvistaqt.QtInteractor
     scale = Float(5e-3)
-    mrk1_obj = Instance(PointObject)
-    mrk2_obj = Instance(PointObject)
-    mrk3_obj = Instance(PointObject)
-    trans = Array()
+    mrk1_obj = Any()  # PointObject
+    mrk2_obj = Any()  # PointObject
+    mrk3_obj = Any()  # PointObject
+    trans = Any()  # ndarray (4, 4)
+    parent = Any()  # QWidget | None, for parenting dialogs
 
-    view = View(VGroup(VGroup(Item('mrk1', style='custom'),
-                              Item('mrk1_obj', style='custom'),
-                              show_labels=False,
-                              label="Source Marker 1", show_border=True),
-                       VGroup(Item('mrk2', style='custom'),
-                              Item('mrk2_obj', style='custom'),
-                              show_labels=False,
-                              label="Source Marker 2", show_border=True),
-                       VGroup(Item('distance', style='readonly'),
-                              label='Stats', show_border=True),
-                       VGroup(Item('mrk3', style='custom'),
-                              Item('mrk3_obj', style='custom'),
-                              show_labels=False,
-                              label="New Marker", show_border=True),
-                       ))
+    def __init__(
+        self,
+        *,
+        scene: QtInteractor | None = None,
+        model: CombineMarkersModel | None = None,
+        trans: np.ndarray | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        if model is None:
+            model = CombineMarkersModel()
+        if trans is None:
+            trans = np.eye(4)
+        super().__init__(scene=scene, model=model, trans=trans, parent=parent)
 
-    def _mrk1_default(self):
-        return self.model.mrk1
+        model = self.model
+        model.parent = self.parent
+        self.mrk1 = model.mrk1
+        self.mrk2 = model.mrk2
+        self.mrk3 = model.mrk3
 
-    def _mrk2_default(self):
-        return self.model.mrk2
+        # Sync distance from model
+        model.observe(
+            lambda ch: setattr(self, "distance", ch["new"]), names=["distance"]
+        )
 
-    def _mrk3_default(self):
-        return self.model.mrk3
+        # Visualization objects
+        self.mrk1_obj = PointObject(
+            scene=self.scene, color=(0.608, 0.216, 0.216), point_scale=self.scale
+        )
+        self.mrk2_obj = PointObject(
+            scene=self.scene, color=(0.216, 0.608, 0.216), point_scale=self.scale
+        )
+        self.mrk3_obj = PointObject(
+            scene=self.scene, color=(0.588, 0.784, 1.0), point_scale=self.scale
+        )
 
-    def __init__(self, *args, **kwargs):  # noqa: D102
-        super(CombineMarkersPanel, self).__init__(*args, **kwargs)
+        # Wire visibility from 'enabled' on each source
+        model.mrk1.observe(
+            lambda ch: setattr(self.mrk1_obj, "visible", ch["new"]), names=["enabled"]
+        )
+        model.mrk2.observe(
+            lambda ch: setattr(self.mrk2_obj, "visible", ch["new"]), names=["enabled"]
+        )
+        model.mrk3.observe(
+            lambda ch: setattr(self.mrk3_obj, "visible", ch["new"]), names=["enabled"]
+        )
 
-        self.model.sync_trait('distance', self, 'distance', mutual=False)
+        # Wire point updates
+        model.mrk1.observe(self._update_mrk1, names=["points"])
+        model.mrk2.observe(self._update_mrk2, names=["points"])
+        model.mrk3.observe(self._update_mrk3, names=["points"])
 
-        self.mrk1_obj = PointObject(scene=self.scene,
-                                    color=(0.608, 0.216, 0.216),
-                                    point_scale=self.scale)
-        self.model.mrk1.sync_trait(
-            'enabled', self.mrk1_obj, 'visible', mutual=False)
+    @observe("trans")
+    def _trans_changed(self, change: Bunch) -> None:
+        self._update_mrk1()
+        self._update_mrk2()
+        self._update_mrk3()
 
-        self.mrk2_obj = PointObject(scene=self.scene,
-                                    color=(0.216, 0.608, 0.216),
-                                    point_scale=self.scale)
-        self.model.mrk2.sync_trait(
-            'enabled', self.mrk2_obj, 'visible', mutual=False)
+    @observe("parent")
+    def _parent_changed(self, change: Bunch) -> None:
+        self.model.parent = change["new"]
 
-        self.mrk3_obj = PointObject(scene=self.scene,
-                                    color=(0.588, 0.784, 1.),
-                                    point_scale=self.scale)
-        self.model.mrk3.sync_trait(
-            'enabled', self.mrk3_obj, 'visible', mutual=False)
-
-    @on_trait_change('model:mrk1:points,trans')
-    def _update_mrk1(self):
+    def _update_mrk1(self, change: Bunch | None = None) -> None:
         if self.mrk1_obj is not None:
-            self.mrk1_obj.points = apply_trans(self.trans,
-                                               self.model.mrk1.points)
+            self.mrk1_obj.points = apply_trans(self.trans, self.model.mrk1.points)
 
-    @on_trait_change('model:mrk2:points,trans')
-    def _update_mrk2(self):
+    def _update_mrk2(self, change: Bunch | None = None) -> None:
         if self.mrk2_obj is not None:
-            self.mrk2_obj.points = apply_trans(self.trans,
-                                               self.model.mrk2.points)
+            self.mrk2_obj.points = apply_trans(self.trans, self.model.mrk2.points)
 
-    @on_trait_change('model:mrk3:points,trans')
-    def _update_mrk3(self):
+    def _update_mrk3(self, change: Bunch | None = None) -> None:
         if self.mrk3_obj is not None:
-            self.mrk3_obj.points = apply_trans(self.trans,
-                                               self.model.mrk3.points)
+            self.mrk3_obj.points = apply_trans(self.trans, self.model.mrk3.points)
 
 
-def _write_dig_points(fname, dig_points):
+def _write_dig_points(fname: str | Path, dig_points: np.ndarray) -> None:
     """Write points to text file.
 
     Parameters
@@ -467,12 +526,12 @@ def _write_dig_points(fname, dig_points):
     dig_points : numpy.ndarray, shape (n_points, 3)
         Points.
     """
-    from mne import __version__
+    from mne import __version__  # ty: ignore[unresolved-import]
 
-    _, ext = os.path.splitext(fname)
+    ext = Path(fname).suffix
     dig_points = np.asarray(dig_points)
     if (dig_points.ndim != 2) or (dig_points.shape[1] != 3):
-        err = "Points must be of shape (n_points, 3), " "not %s" % (dig_points.shape,)
+        err = "Points must be of shape (n_points, 3), not %s" % (dig_points.shape,)
         raise ValueError(err)
 
     if ext == ".txt":

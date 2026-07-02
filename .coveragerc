@@ -1,6 +1,6 @@
 [run]
 branch = True
-source = mne
+source = mne_kit_gui
 omit =
     */setup.py
     */mne_kit_gui/conftest.py

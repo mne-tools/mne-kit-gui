@@ -18,41 +18,42 @@ jobs:
     timeout-minutes: 10
     defaults:
       run:
-        shell: bash -el {0}
+        shell: bash -e {0}
     env:
       PYTHON_VERSION: '${{ matrix.python }}'
     strategy:
       matrix:
         include:
           - os: ubuntu-latest
-            python: '3.13'
+            python: '3.14'
             kind: 'dev'
           - os: ubuntu-latest
-            python: '3.10'
-            kind: 'stable'
-          - os: macos-latest
             python: '3.11'
             kind: 'stable'
           - os: windows-latest
             python: '3.12'
             kind: 'stable'
+          - os: macos-latest
+            python: '3.13'
+            kind: 'stable'
     steps:
       - uses: actions/checkout@v7
-      - uses: pyvista/setup-headless-display-action@main
-      - uses: mamba-org/setup-micromamba@v3
-        timeout-minutes: 8
         with:
-          environment-file: environment.yml
-          # Pin some packages to facilitate speed of solving
-          create-args: >-
-            python=${{ matrix.python }} mayavi=4.8.3 traitsui=8.0.0 pyface=8.0.0 pyside6=6.9.1 qt6-main=6.9.1 vtk-base=9.4.2 vtk=9.4.2 noqt5=1.0.0
-      - run: python -m pip install --progress-bar off -e .[test] qtpy nibabel defusedxml --only-binary=":all:"
+          fetch-depth: 0
+      - uses: pyvista/setup-headless-display-action@main
+        with:
+          qt: true
+          pyvista: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install --progress-bar off -e .[test] pyside6
       - run: python -m pip install --upgrade "mne @ https://github.com/mne-tools/mne-python/archive/refs/heads/main.zip"
         if: matrix.kind == 'dev'
       - run: mne sys_info -p
-      - run: python -c "from mayavi import mlab; mlab.test_plot3d()"
       - run: python -c "import mne; mne.datasets.testing.data_path(verbose=True)"
-      - run: pytest --tb=short --cov=mne_kit_gui --cov-report=xml --cov-report=html -vvv mne_kit_gui
+      - run: python -c "import mne; brain = mne.viz.Brain('fsaverage', surf='white', subjects_dir=mne.datasets.testing.data_path(verbose=True) / 'subjects'); brain.close()"
+      - run: pytest --tb=short --cov --cov-report=xml --cov-report=html -vvv mne_kit_gui
       - uses: codecov/codecov-action@v7
         with:
           token: 325dd076-62e1-4ca3-9e9a-c510d101e173

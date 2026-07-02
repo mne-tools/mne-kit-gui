@@ -1,10 +1,5 @@
 mne-kit-gui
 ===========
 
-Installation can be performed via ``conda`` with:
-
-.. code-block:: console
-
-    $ conda env create -f environment.yml
-    $ conda activate mne-kit-gui
-    $ mne kit2fiff
+Installation can be performed via ``conda`` or ``pip`` in the standard ways.
+You will need to additionally install ``PySide6`` or ``PyQt6`` to run the GUI.

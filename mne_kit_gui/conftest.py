@@ -3,30 +3,33 @@
 #
 # License: BSD-3-Clause
 
-import os.path as op
-import shutil
+import gc
+from collections.abc import Iterator
+from typing import Protocol, TypeVar
 
 import pytest
 
-from mne.datasets import testing
-data_path = testing.data_path(download=False)
-subjects_dir = op.join(data_path, 'subjects')
+from qtpy.QtCore import QObject
+
+_T = TypeVar("_T", bound=QObject)
 
 
-def pytest_configure(config):
+class FindChild(Protocol):
+    """Callable returned by the :func:`find_child` fixture."""
+
+    def __call__(self, parent: QObject, kind: type[_T], name: str) -> _T:
+        """Return ``parent``'s named child of ``kind``, asserting it exists."""
+        ...
+
+
+def pytest_configure(config: pytest.Config) -> None:
     """Configure pytest options."""
-    # Fixtures
-    config.addinivalue_line('usefixtures', 'traits_test')
     warning_lines = r"""
     error::
-    ignore:.*in an Any trait will be shared.*:DeprecationWarning
     ignore:.*Call to deprecated .* vtk.*:DeprecationWarning
     ignore:SelectableGroups dict interface.*:DeprecationWarning
-    ignore:.*use "HasTraits\.trait_set".*:DeprecationWarning
     ignore:.*imp module is deprecated in favour of.*:DeprecationWarning
-    ignore:.*trait handler has been deprecated.*:DeprecationWarning
     ignore:.*np\.loads is deprecated.*:DeprecationWarning
-    ignore:.*metadata has been deprecated.*:DeprecationWarning
     ignore:^numpy\.ufunc size changed.*:RuntimeWarning
     ignore:.*invalid escape sequence.*:
     ignore:.*an integer is required \(got type.*:DeprecationWarning
@@ -38,29 +41,48 @@ def pytest_configure(config):
     ignore:Implementing implicit namespace packages.*:DeprecationWarning
     ignore:Deprecated call to `pkg_resources.*:DeprecationWarning
     ignore:pkg_resources is deprecated as an API.*:DeprecationWarning
-    ignore:The traitsui.qt4.*:FutureWarning
     ignore:numpy\.ndarray size changed.*:RuntimeWarning
     ignore:events_as_annotations defaults to False.*:FutureWarning
+    ignore:Setting the shape on a NumPy array[\s\S]*:DeprecationWarning
     always::ResourceWarning
     """  # noqa: E501
-    for warning_line in warning_lines.split('\n'):
+    for warning_line in warning_lines.split("\n"):
         warning_line = warning_line.strip()
-        if warning_line and not warning_line.startswith('#'):
-            config.addinivalue_line('filterwarnings', warning_line)
+        if warning_line and not warning_line.startswith("#"):
+            config.addinivalue_line("filterwarnings", warning_line)
 
 
-@pytest.fixture(scope='session')
-def traits_test():
-    """Context to raise errors in trait handlers."""
-    from traits.api import push_exception_handler
-    push_exception_handler(reraise_exceptions=True)
+@pytest.fixture(autouse=True)
+def _qapp(qtbot) -> Iterator[None]:
+    """Ensure a QApplication exists for every test.
+
+    Many objects create Qt widgets (e.g. a QProgressDialog) even when no GUI is
+    shown, which aborts the interpreter if no QApplication has been created.
+    Depending on ``qtbot`` here guarantees one exists for the whole test run.
+    """
     yield
-    push_exception_handler(reraise_exceptions=False)
 
 
-@pytest.fixture(scope='function', params=[testing._pytest_param()])
-def subjects_dir_tmp(tmpdir):
-    """Copy MNE-testing-data subjects_dir to a temp dir for manipulation."""
-    for key in ('sample', 'fsaverage'):
-        shutil.copytree(op.join(subjects_dir, key), str(tmpdir.join(key)))
-    return str(tmpdir)
+@pytest.fixture
+def check_gc(qtbot) -> Iterator[None]:
+    """Check that things are garbage collected after closing a GUI."""
+    yield
+    qtbot.wait(200)  # wait for the close to finish
+    gc.collect()
+
+
+@pytest.fixture
+def find_child() -> FindChild:
+    """Return a helper that looks up a named child widget.
+
+    ``QObject.findChild`` is typed as returning ``kind | None``; this wraps it
+    with an assertion so tests fail fast (and stay type-clean) when a widget
+    with the given object name is missing.
+    """
+
+    def _find_child(parent: QObject, kind: type[_T], name: str) -> _T:
+        child = parent.findChild(kind, name)
+        assert child is not None, f"no {kind.__name__} named {name!r}"
+        return child
+
+    return _find_child

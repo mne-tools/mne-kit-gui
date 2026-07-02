@@ -2,47 +2,69 @@
 #
 # License: BSD-3-Clause
 
-import os.path as op
+from pathlib import Path
 
 import numpy as np
+import pytest
 from numpy.testing import assert_allclose, assert_array_equal
+from pytest_mock import MockerFixture
+from pytestqt.qtbot import QtBot
+
+from qtpy.QtGui import QColor
+from qtpy.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDoubleSpinBox,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QRadioButton,
+)
 
 import mne
 from mne.io import read_raw_fif
 import mne_kit_gui
 
-kit_data_dir = op.join(op.dirname(__file__), 'data')
-mrk_pre_path = op.join(kit_data_dir, 'test_mrk_pre.sqd')
-mrk_post_path = op.join(kit_data_dir, 'test_mrk_post.sqd')
-sqd_path = op.join(kit_data_dir, 'test.sqd')
-hsp_path = op.join(kit_data_dir, 'test_hsp.txt')
-fid_path = op.join(kit_data_dir, 'test_elp.txt')
-fif_path = op.join(kit_data_dir, 'test_bin_raw.fif')
+from mne.io.kit.constants import KIT
+
+from mne_kit_gui._kit2fiff_gui import (
+    Kit2FiffModel,
+    Kit2FiffPanel,
+    _load_model_config,
+)
+from mne_kit_gui.conftest import FindChild
+
+kit_data_dir = Path(__file__).parent / "data"
+mrk_pre_path = kit_data_dir / "test_mrk_pre.sqd"
+mrk_post_path = kit_data_dir / "test_mrk_post.sqd"
+sqd_path = kit_data_dir / "test.sqd"
+hsp_path = kit_data_dir / "test_hsp.txt"
+fid_path = kit_data_dir / "test_elp.txt"
+fif_path = kit_data_dir / "test_bin_raw.fif"
 
 
-def test_kit2fiff_model(tmpdir):
+def test_kit2fiff_model(tmp_path: Path, mocker: MockerFixture) -> None:
     """Test Kit2Fiff model."""
-    from mne_kit_gui._kit2fiff_gui import Kit2FiffModel
-    tempdir = str(tmpdir)
-    tgt_fname = op.join(tempdir, 'test-raw.fif')
+    tgt_fname = tmp_path / "test-raw.fif"
 
     model = Kit2FiffModel()
     assert not model.can_save
     assert model.misc_chs_desc == "No SQD file selected..."
     assert model.stim_chs_comment == ""
-    model.markers.mrk1.file = mrk_pre_path
-    model.markers.mrk2.file = mrk_post_path
-    model.sqd_file = sqd_path
+    model.markers.mrk1.file = str(mrk_pre_path)
+    model.markers.mrk2.file = str(mrk_post_path)
+    model.sqd_file = str(sqd_path)
     assert model.misc_chs_desc == "160:192"
-    model.hsp_file = hsp_path
+    model.hsp_file = str(hsp_path)
     assert not model.can_save
-    model.fid_file = fid_path
+    model.fid_file = str(fid_path)
     assert model.can_save
 
     # events
-    model.stim_slope = '+'
+    model.stim_slope = "+"
     assert model.get_event_info() == {1: 2}
-    model.stim_slope = '-'
+    model.stim_slope = "-"
     assert model.get_event_info() == {254: 2, 255: 2}
 
     # stim channels
@@ -63,10 +85,10 @@ def test_kit2fiff_model(tmpdir):
 
     # Compare exported raw with the original binary conversion
     raw_bin = read_raw_fif(fif_path)
-    trans_bin = raw.info['dev_head_t']['trans']
+    trans_bin = raw.info["dev_head_t"]["trans"]
     want_keys = list(raw_bin.info.keys())
-    assert sorted(want_keys) == sorted(list(raw.info.keys()))
-    trans_transform = raw_bin.info['dev_head_t']['trans']
+    assert sorted(want_keys) == sorted(raw.info.keys())
+    trans_transform = raw_bin.info["dev_head_t"]["trans"]
     assert_allclose(trans_transform, trans_bin, 0.1)
 
     # Averaging markers
@@ -83,26 +105,48 @@ def test_kit2fiff_model(tmpdir):
     assert not np.all(model.dev_head_trans == np.eye(4))
 
     # test setting stim channels
-    model.stim_slope = '+'
-    events_bin = mne.find_events(raw_bin, stim_channel='STI 014')
+    model.stim_slope = "+"
+    events_bin = mne.find_events(raw_bin, stim_channel="STI 014")
 
-    model.stim_coding = '<'
+    model.stim_coding = "<"
     raw = model.get_raw()
-    events = mne.find_events(raw, stim_channel='STI 014')
+    events = mne.find_events(raw, stim_channel="STI 014")
     assert_array_equal(events, events_bin)
 
     events_rev = events_bin.copy()
     events_rev[:, 2] = 1
-    model.stim_coding = '>'
+    model.stim_coding = ">"
     raw = model.get_raw()
-    events = mne.find_events(raw, stim_channel='STI 014')
+    events = mne.find_events(raw, stim_channel="STI 014")
     assert_array_equal(events, events_rev)
 
-    model.stim_coding = 'channel'
+    model.stim_coding = "channel"
     model.stim_chs = "160:161"
     raw = model.get_raw()
-    events = mne.find_events(raw, stim_channel='STI 014')
+    events = mne.find_events(raw, stim_channel="STI 014")
     assert_array_equal(events, events_bin + [0, 0, 32])
+
+    # fewer than three markers cannot estimate a transform
+    mock_msgbox = mocker.patch("mne_kit_gui._kit2fiff_gui.QMessageBox")
+    model.show_gui = True
+    model.use_mrk = [0, 1]
+    assert_array_equal(model.dev_head_trans, np.eye(4))
+    assert_array_equal(model.head_dev_trans, np.eye(4))
+    mock_msgbox.critical.assert_called_once()
+    model.show_gui = False
+    model.use_mrk = [0, 1, 2, 3, 4]
+
+    # Step 7: switching the data file keeps the event settings (so several
+    # recordings can be converted without re-entering them)
+    model.stim_slope = "+"
+    model.stim_threshold = 3.5
+    model.stim_chs = "160:168"
+    model.sqd_file = str(sqd_path)  # re-select the data file
+    assert model.stim_slope == "+"
+    assert model.stim_threshold == 3.5
+    assert model.stim_chs == "160:168"
+    assert model.can_save
+    model.stim_chs = ""
 
     # test reset
     model.clear_all()
@@ -110,47 +154,403 @@ def test_kit2fiff_model(tmpdir):
     assert model.sqd_file == ""
 
 
-def test_kit2fiff_gui(tmpdir, monkeypatch):
+def test_save_worker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mocker: MockerFixture
+) -> None:
+    """Test the background save-queue worker without spawning a real thread."""
+    captured = {}
+
+    class FakeThread:
+        def __init__(self, target, daemon=None) -> None:
+            captured["target"] = target
+
+        def start(self) -> None:
+            pass  # don't actually run the worker in a background thread
+
+    monkeypatch.setattr("mne_kit_gui._kit2fiff_gui.Thread", FakeThread)
+    panel = Kit2FiffPanel()
+    worker = captured["target"]
+
+    # A one-shot queue yields a single item, then breaks the worker's loop.
+    class _Stop(Exception):
+        pass
+
+    class OneShotQueue:
+        def __init__(self, item) -> None:
+            self._item = item
+
+        def get(self):
+            if self._item is None:
+                raise _Stop
+            item, self._item = self._item, None
+            return item
+
+        def task_done(self) -> None:
+            pass
+
+    fname = tmp_path / "out-raw.fif"
+
+    # successful save
+    raw = mocker.Mock()
+    panel.queue = OneShotQueue((raw, fname))
+    with pytest.raises(_Stop):
+        worker()
+    raw.save.assert_called_once_with(fname, overwrite=True)
+    assert panel.queue_feedback == "Saved: out-raw.fif"
+    assert panel.queue_current == ""
+
+    # failed save is caught and reported via the feedback string
+    raw_bad = mocker.Mock()
+    raw_bad.save.side_effect = RuntimeError("boom")
+    panel.queue = OneShotQueue((raw_bad, fname))
+    with pytest.raises(_Stop):
+        worker()
+    assert panel.queue_feedback == "Error saving: out-raw.fif"
+
+
+def test_save_as(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mocker: MockerFixture
+) -> None:
+    """Test Kit2FiffPanel.save_as queueing and dialogs (no real thread)."""
+    monkeypatch.setattr(
+        "mne_kit_gui._kit2fiff_gui.Thread", lambda *a, **k: mocker.Mock()
+    )
+    mock_fd = mocker.patch("mne_kit_gui._kit2fiff_gui.QFileDialog")
+    mock_qmb = mocker.patch("mne_kit_gui._kit2fiff_gui.QMessageBox")
+
+    panel = Kit2FiffPanel()
+    panel.model = mocker.Mock()
+    panel.model.sqd_file = str(tmp_path / "test.sqd")
+
+    # an error creating the raw object is reported and re-raised
+    panel.model.get_raw.side_effect = RuntimeError("nope")
+    with pytest.raises(RuntimeError, match="nope"):
+        panel.save_as()
+    mock_qmb.critical.assert_called_once()
+
+    # a successful raw is queued and the ".fif" suffix is appended
+    raw = mocker.Mock()
+    panel.model.get_raw.side_effect = None
+    panel.model.get_raw.return_value = raw
+    no_suffix = tmp_path / "out"  # missing extension, does not yet exist
+    mock_fd.getSaveFileName.return_value = (str(no_suffix), "")
+    panel.save_as()
+    assert panel.queue_len == 1
+    queued_raw, queued_path = panel.queue.get_nowait()
+    assert queued_raw is raw
+    assert queued_path == tmp_path / "out.fif"
+
+    # an existing target prompts to overwrite; answering "No" cancels the queue
+    existing = tmp_path / "exists.fif"
+    existing.write_text("x")
+    mock_fd.getSaveFileName.return_value = (str(existing), "")
+    mock_qmb.question.return_value = mock_qmb.No
+    panel.save_as()
+    assert panel.queue_len == 1  # unchanged
+    mock_qmb.question.assert_called_once()
+
+    # an empty selection is a no-op
+    mock_fd.getSaveFileName.return_value = ("", "")
+    panel.save_as()
+    assert panel.queue_len == 1
+
+
+def test_panel_test_stim(
+    monkeypatch: pytest.MonkeyPatch, mocker: MockerFixture
+) -> None:
+    """Test Kit2FiffPanel.test_stim event reporting (no real thread)."""
+    monkeypatch.setattr(
+        "mne_kit_gui._kit2fiff_gui.Thread", lambda *a, **k: mocker.Mock()
+    )
+    mock_qmb = mocker.patch("mne_kit_gui._kit2fiff_gui.QMessageBox")
+
+    panel = Kit2FiffPanel()
+    panel.model = mocker.Mock()
+
+    # reading events can fail -> critical dialog and re-raise
+    panel.model.get_event_info.side_effect = RuntimeError("bad")
+    with pytest.raises(RuntimeError, match="bad"):
+        panel.test_stim()
+    mock_qmb.critical.assert_called_once()
+
+    # no events found
+    panel.model.get_event_info.side_effect = None
+    panel.model.get_event_info.return_value = {}
+    panel.test_stim()
+
+    # events found are listed
+    panel.model.get_event_info.return_value = {1: 2, 5: 3}
+    panel.test_stim()
+    assert mock_qmb.information.call_count == 2
+
+
+@pytest.mark.filterwarnings("ignore:.*:RuntimeWarning")
+def test_kit2fiff_model_read_errors(tmp_path: Path, mocker: MockerFixture) -> None:
+    """Test that malformed dig/SQD files raise and report via QMessageBox."""
+    mock_msgbox = mocker.patch("mne_kit_gui._kit2fiff_gui.QMessageBox")
+    model = Kit2FiffModel(show_gui=True)
+
+    # a fiducials file with fewer than the required 8 points
+    too_few = tmp_path / "few.txt"
+    np.savetxt(too_few, np.arange(9, dtype=float).reshape(3, 3))
+    with pytest.raises(ValueError, match="need 8"):
+        model.fid_file = str(too_few)
+    assert model.fid_file == ""  # reset to empty on error
+
+    # an unparsable head-shape file
+    bad_hsp = tmp_path / "bad.txt"
+    bad_hsp.write_text("not\tnumbers\there\n")
+    with pytest.raises(Exception):
+        model.hsp_file = str(bad_hsp)
+    assert model.hsp_file == ""
+
+    # a head-shape file with too many points triggers automatic downsampling
+    big_hsp = tmp_path / "big.txt"
+    pts = np.random.RandomState(0).randn(KIT.DIG_POINTS + 1, 3)  # ty: ignore[unresolved-attribute]
+    np.savetxt(big_hsp, pts)
+    model.hsp_file = str(big_hsp)
+    assert 0 < len(model.hsp_raw) <= KIT.DIG_POINTS  # ty: ignore[unresolved-attribute]
+    mock_msgbox.information.assert_called_once()
+
+    # a corrupt SQD file
+    bad_sqd = tmp_path / "bad.sqd"
+    bad_sqd.write_bytes(b"not a valid sqd file")
+    with pytest.raises(Exception):
+        model.sqd_file = str(bad_sqd)
+    assert model.sqd_file == ""
+
+    # each failing read reported an error dialog
+    assert mock_msgbox.critical.call_count == 3
+
+
+def test_load_model_config_invalid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that _load_model_config ignores invalid saved config values."""
+    monkeypatch.setenv("_MNE_FAKE_HOME_DIR", str(tmp_path))
+    # write invalid values to the config file (set_env=False avoids polluting
+    # os.environ for other tests)
+    for key, val in (
+        ("MNE_KIT2FIFF_STIM_CHANNEL_THRESHOLD", "not-a-float"),
+        ("MNE_KIT2FIFF_STIM_CHANNEL_SLOPE", "?"),
+        ("MNE_KIT2FIFF_STIM_CHANNEL_CODING", "?"),
+    ):
+        mne.set_config(key, val, home_dir=str(tmp_path), set_env=False)
+    with pytest.warns(RuntimeWarning, match="Ignoring invalid"):
+        model = _load_model_config()
+    # invalid values fall back to the defaults
+    assert model.stim_threshold == 1.0
+    assert model.stim_slope == "-"
+    assert model.stim_coding == ">"
+
+
+def test_kit2fiff_gui(
+    qtbot: QtBot,
+    check_gc,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mocker: MockerFixture,
+    find_child: FindChild,
+) -> None:
     """Test Kit2Fiff GUI."""
-    home_dir = str(tmpdir)
-    monkeypatch.setenv('_MNE_GUI_TESTING_MODE', 'true')
-    monkeypatch.setenv('_MNE_FAKE_HOME_DIR', home_dir)
+    monkeypatch.setenv("_MNE_FAKE_HOME_DIR", str(tmp_path))
 
-    from pyface.api import GUI
-    gui = GUI()
-    gui.process_events()
+    # WA_DeleteOnClose means this frame's underlying C++ object is gone
+    # once we close it below, so don't also register it with qtbot for
+    # auto-close at teardown -- that would double-close it.
+    frame = mne_kit_gui.kit2fiff(block=False)
 
-    ui, frame = mne_kit_gui.kit2fiff()
     assert not frame.model.can_save
-    assert frame.model.stim_threshold == 1.
-    frame.model.stim_threshold = 10.
-    frame.model.stim_chs = 'save this!'
-    frame.save_config(home_dir)
-    ui.dispose()
-
-    gui.process_events()
+    assert frame.model.stim_threshold == 1.0
+    frame.model.stim_threshold = 10.0
+    frame.model.stim_chs = "save this!"
+    frame.save_config(str(tmp_path))
+    frame.close()
 
     # test setting persistence
-    ui, frame = mne_kit_gui.kit2fiff()
-    assert frame.model.stim_threshold == 10.
-    assert frame.model.stim_chs == 'save this!'
+    frame = mne_kit_gui.kit2fiff(block=False)
+    with qtbot.wait_exposed(frame):
+        pass
+    assert frame.model.stim_threshold == 10.0
+    assert frame.model.stim_chs == "save this!"
+    # the Event widgets must reflect the restored config, not just the model
+    assert find_child(frame, QDoubleSpinBox, "stim_threshold").value() == 10.0
+    assert frame._stim_chs_edit.text() == "save this!"
+
+    # Event Onset and New Marker method radios drive their model trait, and a
+    # model change syncs the radios back (default_name is the restored/default
+    # selection; on_name/on_val is what clicking it sets).
+    for obj, attr, default_name, on_name, on_val in (
+        (frame.model, "stim_slope", "stim_slope_trough", "stim_slope_peak", "+"),
+        (
+            frame.model.markers.mrk3,
+            "method",
+            "mrk3_method_transform",
+            "mrk3_method_average",
+            "Average",
+        ),
+    ):
+        default_val = getattr(obj, attr)
+        assert find_child(frame, QRadioButton, default_name).isChecked()
+        find_child(frame, QRadioButton, on_name).setChecked(True)
+        assert getattr(obj, attr) == on_val
+        setattr(obj, attr, default_val)  # model change syncs the radios back
+        assert find_child(frame, QRadioButton, default_name).isChecked()
+
+    # Value Coding is a compact combo box; it drives stim_coding both ways
+    coding = find_child(frame, QComboBox, "stim_coding")
+    assert coding.currentIndex() == 0  # ">" little-endian is the default
+    coding.setCurrentIndex(2)
+    assert frame.model.stim_coding == "channel"
+    frame.model.stim_coding = "<"  # model change syncs the combo back
+    assert coding.currentIndex() == 1
+    frame.model.stim_coding = ">"
 
     # set and reset marker file
-    points = [[-0.084612, 0.021582, -0.056144],
-              [0.080425, 0.021995, -0.061171],
-              [-0.000787, 0.105530, 0.014168],
-              [-0.047943, 0.091835, 0.010240],
-              [0.042976, 0.094380, 0.010807]]
+    points = [
+        [-0.084612, 0.021582, -0.056144],
+        [0.080425, 0.021995, -0.061171],
+        [-0.000787, 0.105530, 0.014168],
+        [-0.047943, 0.091835, 0.010240],
+        [0.042976, 0.094380, 0.010807],
+    ]
     assert_array_equal(frame.marker_panel.mrk1_obj.points, 0)
     assert_array_equal(frame.marker_panel.mrk3_obj.points, 0)
-    frame.model.markers.mrk1.file = mrk_pre_path
+    frame.model.markers.mrk1.file = str(mrk_pre_path)
     assert_allclose(frame.marker_panel.mrk1_obj.points, points, atol=1e-6)
     assert_allclose(frame.marker_panel.mrk3_obj.points, points, atol=1e-6)
     frame.marker_panel.mrk1_obj.label = True
     frame.marker_panel.mrk1_obj.label = False
-    frame.kit2fiff_panel.clear_all = True
+
+    # --- exercise the marker-panel controls (dialogs mocked) ---
+    mrk1 = frame.model.markers.mrk1
+    # the file path field mirrors the loaded file, with the basename shown too
+    assert find_child(frame, QLineEdit, "mrk1_file").text() == str(mrk_pre_path)
+    assert find_child(frame, QLabel, "mrk1_name").text() == mrk_pre_path.name
+    # Clear/Save As are enabled once data is present
+    clear_btn = find_child(frame, QPushButton, "mrk1_clear")
+    assert clear_btn.isEnabled()
+    assert find_child(frame, QPushButton, "mrk1_save").isEnabled()
+
+    # toggling a "use" checkbox updates the model, and model changes sync back
+    cb0 = find_child(frame, QCheckBox, "mrk1_use_0")
+    assert cb0.isChecked()
+    cb0.setChecked(False)
+    assert 0 not in mrk1.use
+    cb0.setChecked(True)
+    assert 0 in mrk1.use
+    mrk1.use = [1, 2, 3, 4]  # model change syncs the checkbox back
+    assert not cb0.isChecked()
+    mrk1.use = [0, 1, 2, 3, 4]
+
+    # the Browse button routes the chosen path into the model
+    mock_open = mocker.patch("mne_kit_gui._kit2fiff_gui.QFileDialog")
+    mock_open.getOpenFileName.return_value = (str(mrk_post_path), "")
+    find_child(frame, QPushButton, "mrk1_browse").click()
+    assert mrk1.file == str(mrk_post_path)
+    mocker.stopall()
+
+    # Switch L/R swaps the points
+    before = mrk1.points.copy()
+    find_child(frame, QPushButton, "mrk1_switch").click()
+    assert_array_equal(mrk1.points, before[[1, 0, 2, 4, 3]])
+
+    # per-object visualization controls (Show / Size / Label / Color)
+    mrk1_obj = frame.marker_panel.mrk1_obj
+    show = find_child(frame, QCheckBox, "mrk1_show")
+    show.setChecked(not show.isChecked())
+    assert mrk1_obj.visible == show.isChecked()
+    mrk1_obj.visible = True  # model change syncs the checkbox back
+    assert show.isChecked()
+
+    size = find_child(frame, QDoubleSpinBox, "mrk1_size")
+    size.setValue(0.02)
+    assert mrk1_obj.point_scale == 0.02
+
+    lbl = find_child(frame, QCheckBox, "mrk1_label")
+    lbl.setChecked(True)
+    assert mrk1_obj.label
+    lbl.setChecked(False)
+
+    # the Color button shows the int RGB triplet (like the old TraitsUI swatch)
+    color_btn = find_child(frame, QPushButton, "mrk1_color")
+    assert color_btn.text() == "(155,55,55)"  # mrk1's default color
+    # ... and routes a newly-picked color into the object, updating the label
+    mock_color = mocker.patch("mne_kit_gui._kit2fiff_gui.QColorDialog")
+    picked = QColor.fromRgbF(0.1, 0.2, 0.3)
+    mock_color.getColor.return_value = picked
+    color_btn.click()
+    assert_allclose(mrk1_obj.color, (0.1, 0.2, 0.3), atol=1e-3)
+    assert color_btn.text() == "(%d,%d,%d)" % (
+        picked.red(),
+        picked.green(),
+        picked.blue(),
+    )
+    # a cancelled (invalid) color is ignored
+    mock_color.getColor.return_value = QColor()
+    color_btn.click()
+    assert_allclose(mrk1_obj.color, (0.1, 0.2, 0.3), atol=1e-3)
+    mocker.stopall()
+
+    # Reorder / Edit / Save As open dialogs -> mock them out
+    fake_reorder = mocker.Mock()
+    fake_reorder.exec_.return_value = QDialog.Accepted  # ty: ignore[unresolved-attribute]
+    fake_reorder.index = [0, 1, 2, 3, 4]
+    mocker.patch("mne_kit_gui._marker_gui.ReorderDialog", return_value=fake_reorder)
+    find_child(frame, QPushButton, "mrk1_reorder").click()
+
+    fake_edit = mocker.Mock()
+    fake_edit.exec_.return_value = QDialog.Rejected  # ty: ignore[unresolved-attribute]
+    mocker.patch("mne_kit_gui._marker_gui.EditPointsDialog", return_value=fake_edit)
+    find_child(frame, QPushButton, "mrk1_edit").click()
+
+    mock_fd = mocker.patch("mne_kit_gui._marker_gui.QFileDialog")
+    mock_fd.getSaveFileName.return_value = ("", "")
+    find_child(frame, QPushButton, "mrk1_save").click()
+    find_child(frame, QPushButton, "mrk3_save").click()
+
+    # Clear empties the source and disables the gated buttons
+    find_child(frame, QPushButton, "mrk1_clear").click()
+    assert_array_equal(mrk1.points, np.zeros((5, 3)))
+    assert not clear_btn.isEnabled()
+
+    # --- kit2fiff Sources: file fields, basename labels, Use-mrk checkboxes ---
+    frame.model.sqd_file = str(sqd_path)
+    frame.model.hsp_file = str(hsp_path)
+    frame.model.fid_file = str(fid_path)
+    # path fields and basename labels now mirror the model (were blank before)
+    assert frame._sqd_edit.text() == str(sqd_path)
+    assert frame._hsp_edit.text() == str(hsp_path)
+    assert frame._fid_edit.text() == str(fid_path)
+    assert frame._sqd_fname_label.text() == sqd_path.name
+    assert frame._hsp_fname_label.text() == hsp_path.name
+    assert frame._fid_fname_label.text() == fid_path.name
+    # a Use-mrk checkbox toggles the model (kept >=3 to avoid the marker warning)
+    cb2 = find_child(frame, QCheckBox, "use_mrk_2")
+    assert cb2.isChecked()
+    cb2.setChecked(False)
+    assert 2 not in frame.model.use_mrk
+    frame.model.use_mrk = [0, 1, 2, 3, 4]  # model change syncs the checkbox back
+    assert cb2.isChecked()
+
+    # the 3D scene auto-fits the (meter-scale) geometry on a view change: the
+    # loaded head-shape/sensors must actually be visible, not an invisible speck
+    frame._scene_widget.setMinimumSize(400, 400)
+    frame._scene_widget.resize(400, 400)
+    frame.scene.resize(400, 400)
+    qtbot.wait(50)
+    frame.headview.on_set_view("front")
+    img = frame.scene.screenshot(return_img=True)
+    background = img[0, 0].astype(int)
+    foreground = (np.abs(img.astype(int) - background).sum(-1) > 30).mean()
+    assert foreground > 1e-3  # geometry is framed and visible
+    # auto-fit produced a data-scale zoom, not the raw 0.16 default or 160
+    assert 0.01 < frame.headview.scale < 1.0
+
+    frame.model.clear_all()
     assert_array_equal(frame.marker_panel.mrk1_obj.points, 0)
     assert_array_equal(frame.marker_panel.mrk3_obj.points, 0)
-    ui.dispose()
-
-    gui.process_events()
+    # clearing also empties the Sources path fields and basename labels
+    assert frame._sqd_edit.text() == ""
+    assert frame._fid_fname_label.text() == "-"
+    frame.close()

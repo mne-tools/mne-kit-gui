@@ -1,423 +1,512 @@
-"""Mayavi/traits GUI for converting data from KIT systems."""
+"""Traitlets/Qt GUI for converting data from KIT systems."""
 
 # Authors: Christian Brodbeck <christianbrodbeck@nyu.edu>
 #
 # License: BSD-3-Clause
 
 from collections import Counter
+from collections.abc import Callable, Sequence
 import os
 import queue
-import sys
+from pathlib import Path
 from threading import Thread
 
 import numpy as np
+from pyvistaqt import QtInteractor
 
-from mayavi.core.ui.mayavi_scene import MayaviScene
-from mayavi.tools.mlab_scene_model import MlabSceneModel
-from pyface.api import (confirm, error, FileDialog, OK, YES, information,
-                        ProgressDialog, warning)
-from traits.api import (HasTraits, HasPrivateTraits, cached_property, Instance,
-                        Property, Bool, Button, Enum, File, Float, Int, List,
-                        Str, Array, DelegatesTo, on_trait_change)
-from traits.trait_base import ETSConfig
-from traitsui.api import (View, Item, HGroup, VGroup, spring, TextEditor,
-                          CheckListEditor, EnumEditor, Handler)
-from traitsui.menu import NoButtons
-from tvtk.pyface.scene_editor import SceneEditor
+from qtpy.QtWidgets import (
+    QButtonGroup,
+    QCheckBox,
+    QColorDialog,
+    QComboBox,
+    QDoubleSpinBox,
+    QFileDialog,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QMessageBox,
+    QProgressDialog,
+    QPushButton,
+    QRadioButton,
+    QVBoxLayout,
+    QWidget,
+)
+from qtpy.QtCore import Qt
+from qtpy.QtGui import QCloseEvent, QColor
+
+from traitlets import Bool, Bunch, Float, HasTraits, Any, Int, List, Unicode, observe
 
 from mne.channels import make_dig_montage
 from mne.event import _find_events
 from mne.io.constants import FIFF
 from mne.io.kit.coreg import _read_dig_kit
-from mne.io.kit.kit import (RawKIT, KIT, _make_stim_channel, _default_stim_chs,
-                            UnsupportedKITFormat)
-from mne.transforms import (apply_trans, als_ras_trans,
-                            get_ras_to_neuromag_trans, Transform)
+from mne.io.kit.kit import (
+    RawKIT,
+    KIT,
+    _make_stim_channel,
+    _default_stim_chs,
+    UnsupportedKITFormat,
+)
+from mne.transforms import (
+    apply_trans,
+    als_ras_trans,
+    get_ras_to_neuromag_trans,
+    Transform,
+)
 from mne.coreg import _decimate_points, fit_matched_points
 from mne.utils import get_config, set_config, logger, warn
 
-from ._backend import _get_pyface_backend
-from ._marker_gui import CombineMarkersPanel, CombineMarkersModel
+from ._marker_gui import CombineMarkersPanel, CombineMarkersModel, MarkerPointSource
 from ._help import read_tooltips
-from ._viewer import HeadViewController, PointObject
-
-use_editor = CheckListEditor(cols=5, values=[(i, str(i)) for i in range(5)])
-
-if _get_pyface_backend() == 'wx':
-    # wx backend allows labels for wildcards
-    hsp_wildcard = ['Head Shape Points (*.hsp;*.txt)|*.hsp;*.txt']
-    elp_wildcard = ['Head Shape Fiducials (*.elp;*.txt)|*.elp;*.txt']
-    kit_con_wildcard = ['Continuous KIT Files (*.sqd;*.con)|*.sqd;*.con']
-if sys.platform in ('win32', 'linux2'):
-    # on Windows and Ubuntu, multiple wildcards does not seem to work
-    hsp_wildcard = ['*.hsp', '*.txt']
-    elp_wildcard = ['*.elp', '*.txt']
-    kit_con_wildcard = ['*.sqd', '*.con']
-else:
-    hsp_wildcard = ['*.hsp;*.txt']
-    elp_wildcard = ['*.elp;*.txt']
-    kit_con_wildcard = ['*.sqd;*.con']
+from ._viewer import (
+    HeadViewController,
+    PointObject,
+    build_head_view_group,
+    embed_pyvista_scene,
+)
 
 
-tooltips = read_tooltips('kit2fiff')
+hsp_wildcard = "Head Shape Points (*.hsp *.txt)"
+elp_wildcard = "Head Shape Fiducials (*.elp *.txt)"
+kit_con_wildcard = "Continuous KIT Files (*.sqd *.con)"
+
+tooltips = read_tooltips("kit2fiff")
 
 
-class Kit2FiffModel(HasPrivateTraits):
-    """Data Model for Kit2Fiff conversion.
+class Kit2FiffModel(HasTraits):
+    """Data model for Kit2Fiff conversion.
 
-    - Markers are transformed into RAS coordinate system (as are the sensor
-      coordinates).
-    - Head shape digitizer data is transformed into neuromag-like space.
+    Markers are transformed into RAS coordinate system (as are the sensor
+    coordinates). Head shape digitizer data is transformed into neuromag-like
+    space.
     """
 
-    # Input Traits
-    markers = Instance(CombineMarkersModel, ())
-    sqd_file = File(exists=True, filter=kit_con_wildcard)
+    # --- inputs ---
+    markers = Any()  # CombineMarkersModel
+    sqd_file = Unicode()
     allow_unknown_format = Bool(False)
-    hsp_file = File(exists=True, filter=hsp_wildcard)
-    fid_file = File(exists=True, filter=elp_wildcard)
-    stim_coding = Enum(">", "<", "channel")
-    stim_chs = Str("")
-    stim_chs_array = Property(depends_on=['raw', 'stim_chs', 'stim_coding'])
-    stim_chs_ok = Property(depends_on='stim_chs_array')
-    stim_chs_comment = Property(depends_on='stim_chs_array')
-    stim_slope = Enum("-", "+")
-    stim_threshold = Float(1.)
-
-    # Marker Points
-    use_mrk = List(list(range(5)), desc="Which marker points to use for the "
-                   "device head coregistration.")
-
-    # Derived Traits
-    mrk = Property(depends_on='markers.mrk3.points')
-
-    # Polhemus Fiducials
-    elp_raw = Property(depends_on=['fid_file'])
-    hsp_raw = Property(depends_on=['hsp_file'])
-    polhemus_neuromag_trans = Property(depends_on=['elp_raw'])
-
-    # Polhemus data (in neuromag space)
-    elp = Property(depends_on=['elp_raw', 'polhemus_neuromag_trans'])
-    fid = Property(depends_on=['elp_raw', 'polhemus_neuromag_trans'])
-    hsp = Property(depends_on=['hsp_raw', 'polhemus_neuromag_trans'])
-
-    # trans
-    dev_head_trans = Property(depends_on=['elp', 'mrk', 'use_mrk'])
-    head_dev_trans = Property(depends_on=['dev_head_trans'])
-
-    # event preview
-    raw = Property(depends_on='sqd_file')
-    misc_chs = Property(List, depends_on='raw')
-    misc_chs_desc = Property(Str, depends_on='misc_chs')
-    misc_data = Property(Array, depends_on='raw')
-    can_test_stim = Property(Bool, depends_on='raw')
-
-    # info
-    sqd_fname = Property(Str, depends_on='sqd_file')
-    hsp_fname = Property(Str, depends_on='hsp_file')
-    fid_fname = Property(Str, depends_on='fid_file')
-    can_save = Property(Bool, depends_on=['stim_chs_ok', 'fid',
-                                          'elp', 'hsp', 'dev_head_trans'])
-
-    # Show GUI feedback (like error messages and progress bar)
+    hsp_file = Unicode()
+    fid_file = Unicode()
+    stim_coding = Unicode(">")
+    stim_chs = Unicode("")
+    stim_slope = Unicode("-")
+    stim_threshold = Float(1.0)
+    use_mrk = List()  # list of int 0-4
     show_gui = Bool(False)
 
-    @cached_property
-    def _get_can_save(self):
-        """Only allow saving when all or no head shape elements are set."""
-        if not self.stim_chs_ok:
-            return False
+    # --- level-1 computed (depend on one input) ---
+    raw = Any()
+    elp_raw = Any()  # ndarray (n, 3) or None
+    hsp_raw = Any()  # ndarray (n, 3) or None
+    mrk = Any()  # ndarray (5, 3)
 
-        has_all_hsp = (np.any(self.dev_head_trans) and np.any(self.hsp) and
-                       np.any(self.elp) and np.any(self.fid))
-        if has_all_hsp:
-            return True
+    # --- level-2 computed ---
+    misc_chs = Any()  # list of int
+    misc_chs_desc = Unicode()
+    misc_data = Any()  # ndarray or None
+    can_test_stim = Bool()
+    polhemus_neuromag_trans = Any()  # ndarray (4, 4) or None
+    stim_chs_array = Any()  # ndarray or None
+    stim_chs_ok = Bool()
+    stim_chs_comment = Unicode()
 
-        has_any_hsp = self.hsp_file or self.fid_file or np.any(self.mrk)
-        return not has_any_hsp
+    # --- level-3 computed ---
+    elp = Any()  # ndarray (5, 3) or empty
+    fid = Any()  # ndarray (3, 3) or empty
+    hsp = Any()  # ndarray (n, 3) or empty
 
-    @cached_property
-    def _get_can_test_stim(self):
-        return self.raw is not None
+    # --- level-4 computed ---
+    dev_head_trans = Any()  # ndarray (4, 4)
+    head_dev_trans = Any()  # ndarray (4, 4)
 
-    @cached_property
-    def _get_dev_head_trans(self):
-        if (self.mrk is None) or not np.any(self.fid):
-            return np.eye(4)
+    # --- filenames ---
+    sqd_fname = Unicode("-")
+    hsp_fname = Unicode("-")
+    fid_fname = Unicode("-")
 
-        src_pts = self.mrk
-        dst_pts = self.elp
+    # --- overall ---
+    can_save = Bool()
 
+    parent = Any()  # QWidget | None, for parenting dialogs
+
+    def __init__(
+        self,
+        *,
+        stim_chs: str = "",
+        stim_coding: str = ">",
+        stim_slope: str = "-",
+        stim_threshold: float = 1.0,
+        show_gui: bool = False,
+    ) -> None:
+        super().__init__(
+            markers=CombineMarkersModel(),
+            use_mrk=list(range(5)),
+            stim_chs=stim_chs,
+            stim_coding=stim_coding,
+            stim_slope=stim_slope,
+            stim_threshold=stim_threshold,
+            show_gui=show_gui,
+        )
+        self.mrk = np.zeros((5, 3))
+        self.elp = np.empty((0, 3))
+        self.fid = np.empty((0, 3))
+        self.hsp = np.empty((0, 3))
+        self.dev_head_trans = np.eye(4)
+        self.head_dev_trans = np.eye(4)
+        self.markers.parent = self.parent
+        # Wire markers
+        self.markers.mrk3.observe(self._mrk3_points_changed, names=["points"])
+        self._recompute_misc()
+        self._recompute_stim_chs_array()
+
+    @observe("parent")
+    def _parent_changed(self, change: Bunch) -> None:
+        self.markers.parent = change["new"]
+
+    # ------------------------------------------------------------------
+    # Observers
+    # ------------------------------------------------------------------
+
+    def _mrk3_points_changed(self, change: Bunch) -> None:
+        self.mrk = apply_trans(als_ras_trans, change["new"])
+        self._recompute_dev_head_trans()
+        self._update_can_save()
+
+    @observe("sqd_file")
+    def _sqd_file_changed(self, change: Bunch) -> None:
+        fname = change["new"]
+        self.sqd_fname = Path(fname).name if fname else "-"
+        self._recompute_raw()
+
+    def _recompute_raw(self) -> None:
+        fname = self.sqd_file
+        if not fname:
+            self.raw = None
+        else:
+            try:
+                self.raw = RawKIT(
+                    fname, stim=None, allow_unknown_format=self.allow_unknown_format
+                )
+            except UnsupportedKITFormat as exc:
+                if self.show_gui:
+                    QMessageBox.warning(
+                        self.parent,
+                        "Unsupported SQD File Format",
+                        "The selected SQD file is written in an old file "
+                        "format (%s) that is not officially supported. "
+                        "Confirm that the results are as expected." % exc.sqd_version,
+                    )
+                self.allow_unknown_format = True
+                self._recompute_raw()
+                return
+            except Exception as err:
+                self.sqd_file = ""
+                if self.show_gui:
+                    QMessageBox.critical(
+                        self.parent,
+                        "Error Reading SQD File",
+                        "Error reading SQD data file: %s" % str(err),
+                    )
+                raise
+        self._recompute_misc()
+        self._recompute_stim_chs_array()
+        self._update_can_save()
+
+    def _recompute_misc(self) -> None:
+        raw = self.raw
+        if raw is None:
+            self.misc_chs = None
+            self.misc_chs_desc = "No SQD file selected..."
+            self.can_test_stim = False
+            self.misc_data = None
+        else:
+            chs = [
+                i
+                for i, ch in enumerate(raw.info["chs"])
+                if ch["kind"] == FIFF.FIFFV_MISC_CH  # ty: ignore[unresolved-attribute]
+            ]
+            self.misc_chs = chs
+            if not chs:
+                self.misc_chs_desc = "0 MISC channels"
+            elif np.all(np.diff(chs) == 1):
+                self.misc_chs_desc = "%i:%i" % (chs[0], chs[-1] + 1)
+            else:
+                self.misc_chs_desc = "%i... (discontinuous)" % chs[0]
+            self.can_test_stim = True
+            self.misc_data = None  # load on demand
+
+    @observe("fid_file")
+    def _fid_file_changed(self, change: Bunch) -> None:
+        fname = change["new"]
+        self.fid_fname = Path(fname).name if fname else "-"
+        self._recompute_elp_raw()
+
+    def _recompute_elp_raw(self) -> None:
+        fname = self.fid_file
+        if not fname:
+            self.elp_raw = None
+        else:
+            try:
+                pts = _read_dig_kit(fname)
+                if len(pts) < 8:
+                    raise ValueError("File contains %i points, need 8" % len(pts))
+            except Exception as err:
+                if self.show_gui:
+                    QMessageBox.critical(
+                        self.parent, "Error Reading Fiducials", str(err)
+                    )
+                self.fid_file = ""
+                raise
+            else:
+                self.elp_raw = pts
+        self._recompute_polhemus_trans()
+
+    def _recompute_polhemus_trans(self) -> None:
+        elp_raw = self.elp_raw
+        if elp_raw is None:
+            self.polhemus_neuromag_trans = None
+        else:
+            nasion, lpa, rpa = apply_trans(als_ras_trans, elp_raw[:3])
+            trans = get_ras_to_neuromag_trans(nasion, lpa, rpa)
+            self.polhemus_neuromag_trans = np.dot(trans, als_ras_trans)
+        self._recompute_elp_fid()
+
+    def _recompute_elp_fid(self) -> None:
+        elp_raw = self.elp_raw
+        trans = self.polhemus_neuromag_trans
+        if elp_raw is None or trans is None:
+            self.elp = np.empty((0, 3))
+            self.fid = np.empty((0, 3))
+        else:
+            self.elp = apply_trans(trans, elp_raw[3:8])
+            self.fid = apply_trans(trans, elp_raw[:3])
+        self._recompute_dev_head_trans()
+        self._recompute_hsp()
+        self._update_can_save()
+
+    @observe("hsp_file")
+    def _hsp_file_changed(self, change: Bunch) -> None:
+        fname = change["new"]
+        self.hsp_fname = Path(fname).name if fname else "-"
+        self._recompute_hsp_raw()
+
+    def _recompute_hsp_raw(self) -> None:
+        fname = self.hsp_file
+        if not fname:
+            self.hsp_raw = None
+        else:
+            try:
+                pts = _read_dig_kit(fname)
+                n_pts = len(pts)
+                if n_pts > KIT.DIG_POINTS:  # ty: ignore[unresolved-attribute]
+                    msg = (
+                        "The selected head shape contains {n} points, "
+                        "which is more than the recommended maximum "
+                        "({rec}). The file will be automatically "
+                        "downsampled.".format(
+                            n=n_pts,
+                            rec=KIT.DIG_POINTS,  # ty: ignore[unresolved-attribute]
+                        )
+                    )
+                    if self.show_gui:
+                        QMessageBox.information(
+                            self.parent, "Too Many Head Shape Points", msg
+                        )
+                    pts = _decimate_points(pts, 5)
+            except Exception as err:
+                if self.show_gui:
+                    QMessageBox.critical(
+                        self.parent, "Error Reading Head Shape", str(err)
+                    )
+                self.hsp_file = ""
+                raise
+            self.hsp_raw = pts
+        self._recompute_hsp()
+        self._update_can_save()
+
+    def _recompute_hsp(self) -> None:
+        hsp_raw = self.hsp_raw
+        trans = self.polhemus_neuromag_trans
+        if hsp_raw is None or trans is None:
+            self.hsp = np.empty((0, 3))
+        else:
+            self.hsp = apply_trans(trans, hsp_raw)
+
+    @observe("use_mrk")
+    def _use_mrk_changed(self, change: Bunch) -> None:
+        self._recompute_dev_head_trans()
+        self._update_can_save()
+
+    def _recompute_dev_head_trans(self) -> None:
+        mrk = self.mrk
+        elp = self.elp
+        if mrk is None or not np.any(elp):
+            self.dev_head_trans = np.eye(4)
+            self.head_dev_trans = np.eye(4)
+            return
+
+        src_pts = mrk
+        dst_pts = elp
         n_use = len(self.use_mrk)
+
         if n_use < 3:
             if self.show_gui:
-                error(None, "Estimating the device head transform requires at "
-                      "least 3 marker points. Please adjust the markers used.",
-                      "Not Enough Marker Points")
+                QMessageBox.critical(
+                    self.parent,
+                    "Not Enough Marker Points",
+                    "Estimating the device head transform requires at "
+                    "least 3 marker points. Please adjust the markers used.",
+                )
+            self.dev_head_trans = np.eye(4)
+            self.head_dev_trans = np.eye(4)
             return
         elif n_use < 5:
             src_pts = src_pts[self.use_mrk]
             dst_pts = dst_pts[self.use_mrk]
 
-        trans = fit_matched_points(src_pts, dst_pts, out='trans')
-        return trans
+        trans = fit_matched_points(src_pts, dst_pts, out="trans")
+        self.dev_head_trans = trans
+        self.head_dev_trans = np.linalg.inv(trans)
 
-    @cached_property
-    def _get_elp(self):
-        if self.elp_raw is None:
-            return np.empty((0, 3))
-        pts = self.elp_raw[3:8]
-        pts = apply_trans(self.polhemus_neuromag_trans, pts)
-        return pts
+    @observe("stim_chs", "stim_coding")
+    def _stim_params_changed(self, change: Bunch) -> None:
+        self._recompute_stim_chs_array()
 
-    @cached_property
-    def _get_elp_raw(self):
-        if not self.fid_file:
+    def _recompute_stim_chs_array(self) -> None:
+        raw = self.raw
+        if raw is None:
+            self.stim_chs_array = None
+            self.stim_chs_ok = False
+            self.stim_chs_comment = ""
+            self._update_can_save()
             return
 
-        try:
-            pts = _read_dig_kit(self.fid_file)
-            if len(pts) < 8:
-                raise ValueError("File contains %i points, need 8" % len(pts))
-        except Exception as err:
-            if self.show_gui:
-                error(None, str(err), "Error Reading Fiducials")
-            self.reset_traits(['fid_file'])
-            raise
-        else:
-            return pts
-
-    @cached_property
-    def _get_fid(self):
-        if self.elp_raw is None:
-            return np.empty((0, 3))
-        pts = self.elp_raw[:3]
-        pts = apply_trans(self.polhemus_neuromag_trans, pts)
-        return pts
-
-    @cached_property
-    def _get_fid_fname(self):
-        if self.fid_file:
-            return os.path.basename(self.fid_file)
-        else:
-            return '-'
-
-    @cached_property
-    def _get_head_dev_trans(self):
-        return np.linalg.inv(self.dev_head_trans)
-
-    @cached_property
-    def _get_hsp(self):
-        if (self.hsp_raw is None) or not np.any(self.polhemus_neuromag_trans):
-            return np.empty((0, 3))
-        else:
-            pts = apply_trans(self.polhemus_neuromag_trans, self.hsp_raw)
-            return pts
-
-    @cached_property
-    def _get_hsp_fname(self):
-        if self.hsp_file:
-            return os.path.basename(self.hsp_file)
-        else:
-            return '-'
-
-    @cached_property
-    def _get_hsp_raw(self):
-        fname = self.hsp_file
-        if not fname:
-            return
-
-        try:
-            pts = _read_dig_kit(fname)
-            n_pts = len(pts)
-            if n_pts > KIT.DIG_POINTS:
-                msg = ("The selected head shape contains {n_in} points, "
-                       "which is more than the recommended maximum ({n_rec}). "
-                       "The file will be automatically downsampled, which "
-                       "might take a while. A better way to downsample is "
-                       "using FastScan.".
-                       format(n_in=n_pts, n_rec=KIT.DIG_POINTS))
-                if self.show_gui:
-                    information(None, msg, "Too Many Head Shape Points")
-                pts = _decimate_points(pts, 5)
-
-        except Exception as err:
-            if self.show_gui:
-                error(None, str(err), "Error Reading Head Shape")
-            self.reset_traits(['hsp_file'])
-            raise
-        else:
-            return pts
-
-    @cached_property
-    def _get_misc_chs(self):
-        if not self.raw:
-            return
-        return [i for i, ch in enumerate(self.raw.info['chs']) if
-                ch['kind'] == FIFF.FIFFV_MISC_CH]
-
-    @cached_property
-    def _get_misc_chs_desc(self):
-        if self.misc_chs is None:
-            return "No SQD file selected..."
-        elif np.all(np.diff(self.misc_chs) == 1):
-            return "%i:%i" % (self.misc_chs[0], self.misc_chs[-1] + 1)
-        else:
-            return "%i... (discontinuous)" % self.misc_chs[0]
-
-    @cached_property
-    def _get_misc_data(self):
-        if not self.raw:
-            return
-        if self.show_gui:
-            # progress dialog with indefinite progress bar
-            prog = ProgressDialog(title="Loading SQD data...",
-                                  message="Loading stim channel data from SQD "
-                                  "file ...")
-            prog.open()
-            prog.update(0)
-        else:
-            prog = None
-
-        try:
-            data, times = self.raw[self.misc_chs]
-        except Exception as err:
-            if self.show_gui:
-                error(None, "Error reading SQD data file: %s (Check the "
-                      "terminal output for details)" % str(err),
-                      "Error Reading SQD File")
-            raise
-        finally:
-            if self.show_gui:
-                prog.close()
-        return data
-
-    @cached_property
-    def _get_mrk(self):
-        return apply_trans(als_ras_trans, self.markers.mrk3.points)
-
-    @cached_property
-    def _get_polhemus_neuromag_trans(self):
-        if self.elp_raw is None:
-            return
-        nasion, lpa, rpa = apply_trans(als_ras_trans, self.elp_raw[:3])
-        trans = get_ras_to_neuromag_trans(nasion, lpa, rpa)
-        return np.dot(trans, als_ras_trans)
-
-    @cached_property
-    def _get_raw(self):
-        if not self.sqd_file:
-            return
-        try:
-            return RawKIT(self.sqd_file, stim=None,
-                          allow_unknown_format=self.allow_unknown_format)
-        except UnsupportedKITFormat as exception:
-            warning(
-                None,
-                "The selected SQD file is written in an old file format (%s) "
-                "that is not officially supported. Confirm that the results "
-                "are as expected. This warning is displayed only once per "
-                "session." % (exception.sqd_version,),
-                "Unsupported SQD File Format")
-            self.allow_unknown_format = True
-            return self._get_raw()
-        except Exception as err:
-            self.reset_traits(['sqd_file'])
-            if self.show_gui:
-                error(None, "Error reading SQD data file: %s (Check the "
-                      "terminal output for details)" % str(err),
-                      "Error Reading SQD File")
-            raise
-
-    @cached_property
-    def _get_sqd_fname(self):
-        if self.sqd_file:
-            return os.path.basename(self.sqd_file)
-        else:
-            return '-'
-
-    @cached_property
-    def _get_stim_chs_array(self):
-        if self.raw is None:
-            return
-        elif not self.stim_chs.strip():
-            picks = _default_stim_chs(self.raw.info)
+        chs = self.stim_chs.strip()
+        if not chs:
+            picks = _default_stim_chs(raw.info)
         else:
             try:
-                picks = eval("r_[%s]" % self.stim_chs, vars(np))
-                if picks.dtype.kind != 'i':
+                picks = eval("r_[%s]" % chs, vars(np))
+                if picks.dtype.kind != "i":
                     raise TypeError("Need array of int")
             except Exception:
-                return None
+                self.stim_chs_array = None
+                self.stim_chs_ok = False
+                self.stim_chs_comment = "Invalid!"
+                self._update_can_save()
+                return
 
-        if self.stim_coding == '<':  # Big-endian
-            return picks[::-1]
-        else:
-            return picks
+        if self.stim_coding == "<":
+            picks = picks[::-1]
+        self.stim_chs_array = picks
+        self.stim_chs_ok = True
+        self.stim_chs_comment = (
+            "Default:  The first 8 MISC channels"
+            if not chs
+            else "Ok:  %i channels" % len(picks)
+        )
+        self._update_can_save()
 
-    @cached_property
-    def _get_stim_chs_comment(self):
-        if self.raw is None:
-            return ""
-        elif not self.stim_chs_ok:
-            return "Invalid!"
-        elif not self.stim_chs.strip():
-            return "Default:  The first 8 MISC channels"
-        else:
-            return "Ok:  %i channels" % len(self.stim_chs_array)
-
-    @cached_property
-    def _get_stim_chs_ok(self):
-        return self.stim_chs_array is not None
-
-    def clear_all(self):
-        """Clear all specified input parameters."""
-        self.markers.clear = True
-        self.reset_traits(['sqd_file', 'hsp_file', 'fid_file', 'use_mrk'])
-
-    def get_event_info(self):
-        """Count events with current stim channel settings.
-
-        Returns
-        -------
-        event_count : Counter
-            Counter mapping event ID to number of occurrences.
-        """
-        if self.misc_data is None:
+    def _update_can_save(self) -> None:
+        if not self.stim_chs_ok:
+            self.can_save = False
             return
+        has_all = (
+            np.any(self.dev_head_trans)
+            and np.any(self.hsp)
+            and np.any(self.elp)
+            and np.any(self.fid)
+        )
+        if has_all:
+            self.can_save = True
+            return
+        has_any = self.hsp_file or self.fid_file or np.any(self.mrk)
+        self.can_save = not bool(has_any)
+
+    def clear_all(self) -> None:
+        """Clear all specified input parameters."""
+        self.markers.clear()
+        self.sqd_file = ""
+        self.hsp_file = ""
+        self.fid_file = ""
+        self.use_mrk = list(range(5))
+
+    def get_misc_data(self) -> np.ndarray | None:
+        """Load misc channel data from the SQD file, with progress dialog."""
+        if self.misc_data is not None:
+            return self.misc_data
+        if self.raw is None:
+            return None
+        parent = self.parent
+
+        prog = QProgressDialog(
+            # a None cancel-button label makes the dialog uncancelable
+            "Loading stim channel data from SQD file ...",
+            None,  # ty: ignore[invalid-argument-type]
+            0,
+            0,
+            parent,
+        )
+        prog.setWindowTitle("Loading SQD data...")
+        prog.setWindowModality(Qt.WindowModal)  # ty: ignore[unresolved-attribute]
+        prog.setMinimumDuration(0)
+        prog.show()
+        try:
+            data, _ = self.raw[self.misc_chs]
+        except Exception as err:
+            if self.show_gui:
+                QMessageBox.critical(
+                    parent,
+                    "Error Reading SQD File",
+                    "Error reading SQD data file: %s" % str(err),
+                )
+            raise
+        finally:
+            prog.close()
+        self.misc_data = data
+        return data
+
+    def get_event_info(self) -> Counter | None:
+        """Count events with current stim channel settings."""
+        data = self.get_misc_data()
+        if data is None:
+            return None
         idx = [self.misc_chs.index(ch) for ch in self.stim_chs_array]
-        data = self.misc_data[idx]
-        if self.stim_coding == 'channel':
-            coding = 'channel'
-        else:
-            coding = 'binary'
-        stim_ch = _make_stim_channel(data, self.stim_slope,
-                                     self.stim_threshold, coding,
-                                     self.stim_chs_array)
-        events = _find_events(stim_ch, self.raw.first_samp, consecutive=True,
-                              min_samples=3)
+        data = data[idx]
+        coding = "channel" if self.stim_coding == "channel" else "binary"
+        stim_ch = _make_stim_channel(
+            data, self.stim_slope, self.stim_threshold, coding, self.stim_chs_array
+        )
+        events = _find_events(
+            stim_ch, self.raw.first_samp, consecutive=True, min_samples=3
+        )
         return Counter(events[:, 2])
 
-    def get_raw(self, preload=False):
+    def get_raw(self, preload: bool = False) -> RawKIT:
         """Create a raw object based on the current model settings."""
         if not self.can_save:
             raise ValueError("Not all necessary parameters are set")
 
-        # stim channels and coding
-        if self.stim_coding == 'channel':
-            stim_code = 'channel'
-        elif self.stim_coding in '<>':
-            stim_code = 'binary'
-        else:
-            raise RuntimeError("stim_coding=%r" % self.stim_coding)
-
-        logger.info("Creating raw with stim=%r, slope=%r, stim_code=%r, "
-                    "stimthresh=%r", self.stim_chs_array, self.stim_slope,
-                    stim_code, self.stim_threshold)
-        raw = RawKIT(self.sqd_file, preload=preload, stim=self.stim_chs_array,
-                     slope=self.stim_slope, stim_code=stim_code,
-                     stimthresh=self.stim_threshold,
-                     allow_unknown_format=self.allow_unknown_format)
+        stim_code = "channel" if self.stim_coding == "channel" else "binary"
+        logger.info(
+            "Creating raw with stim=%r, slope=%r, stim_code=%r, stimthresh=%r",
+            self.stim_chs_array,
+            self.stim_slope,
+            stim_code,
+            self.stim_threshold,
+        )
+        raw = RawKIT(
+            self.sqd_file,
+            preload=preload,
+            stim=self.stim_chs_array,
+            slope=self.stim_slope,
+            stim_code=stim_code,
+            stimthresh=self.stim_threshold,
+            allow_unknown_format=self.allow_unknown_format,
+        )
 
         if np.any(self.fid):
             mon = make_dig_montage(
@@ -428,337 +517,805 @@ class Kit2FiffModel(HasPrivateTraits):
                 hsp=self.hsp,
             )
             with raw.info._unlock():
-                raw.info['dig'] = mon.dig
-                raw.info['dev_head_t'] = Transform('meg', 'head',
-                                                   self.dev_head_trans)
+                raw.info["dig"] = mon.dig
+                raw.info["dev_head_t"] = Transform("meg", "head", self.dev_head_trans)
         return raw
 
 
-class Kit2FiffFrameHandler(Handler):
-    """Check for unfinished processes before closing its window."""
-
-    def close(self, info, is_ok):  # noqa: D102
-        if info.object.kit2fiff_panel.queue.unfinished_tasks:
-            msg = ("Can not close the window while saving is still in "
-                   "progress. Please wait until all files are processed.")
-            title = "Saving Still in Progress"
-            information(None, msg, title)
-            return False
-        else:
-            # store configuration, but don't prevent from closing on error
-            try:
-                info.object.save_config()
-            except Exception as exc:
-                warn("Error saving GUI configuration:\n%s" % (exc,))
-            return True
-
-
-class Kit2FiffPanel(HasPrivateTraits):
-    """Control panel for kit2fiff conversion."""
-
-    model = Instance(Kit2FiffModel)
-
-    # model copies for view
-    use_mrk = DelegatesTo('model')
-    sqd_file = DelegatesTo('model')
-    hsp_file = DelegatesTo('model')
-    fid_file = DelegatesTo('model')
-    stim_coding = DelegatesTo('model')
-    stim_chs = DelegatesTo('model')
-    stim_chs_ok = DelegatesTo('model')
-    stim_chs_comment = DelegatesTo('model')
-    stim_slope = DelegatesTo('model')
-    stim_threshold = DelegatesTo('model')
-
-    # info
-    can_save = DelegatesTo('model')
-    sqd_fname = DelegatesTo('model')
-    hsp_fname = DelegatesTo('model')
-    fid_fname = DelegatesTo('model')
-    misc_chs_desc = DelegatesTo('model')
-    can_test_stim = DelegatesTo('model')
-    test_stim = Button(label="Find Events")
-    plot_raw = Button(label="Plot Raw")
-
-    # Source Files
-    reset_dig = Button
-
-    # Visualization
-    scene = Instance(MlabSceneModel)
-    fid_obj = Instance(PointObject)
-    elp_obj = Instance(PointObject)
-    hsp_obj = Instance(PointObject)
-
-    # Output
-    save_as = Button(label='Save FIFF...')
-    clear_all = Button(label='Clear All')
-    queue = Instance(queue.Queue, ())
-    queue_feedback = Str('')
-    queue_current = Str('')
-    queue_len = Int(0)
-    queue_len_str = Property(Str, depends_on=['queue_len'])
-    error = Str('')
-
-    view = View(
-        VGroup(VGroup(Item('sqd_file', label="Data",
-                           tooltip=tooltips['sqd_file']),
-                      Item('sqd_fname', show_label=False, style='readonly'),
-                      Item('hsp_file', label='Digitizer\nHead Shape',
-                           tooltip=tooltips['hsp_file']),
-                      Item('hsp_fname', show_label=False, style='readonly'),
-                      Item('fid_file', label='Digitizer\nFiducials',
-                           tooltip=tooltips['fid_file']),
-                      Item('fid_fname', show_label=False, style='readonly'),
-                      Item('reset_dig', label='Clear Digitizer Files',
-                           show_label=False),
-                      Item('use_mrk', editor=use_editor, style='custom',
-                           tooltip=tooltips['use_mrk']),
-                      label="Sources", show_border=True),
-               VGroup(Item('misc_chs_desc', label='MISC Channels',
-                           style='readonly'),
-                      Item('stim_slope', label="Event Onset", style='custom',
-                           tooltip=tooltips['stim_slope'],
-                           editor=EnumEditor(
-                               values={'+': '2:Peak (0 to 5 V)',
-                                       '-': '1:Trough (5 to 0 V)'},
-                               cols=2)),
-                      Item('stim_coding', label="Value Coding", style='custom',
-                           editor=EnumEditor(values={'>': '1:little-endian',
-                                                     '<': '2:big-endian',
-                                                     'channel': '3:Channel#'},
-                                             cols=3),
-                           tooltip=tooltips["stim_coding"]),
-                      Item('stim_chs', label='Channels', style='custom',
-                           tooltip=tooltips["stim_chs"],
-                           editor=TextEditor(evaluate_name='stim_chs_ok',
-                                             auto_set=True)),
-                      Item('stim_chs_comment', label='Evaluation',
-                           style='readonly', show_label=False),
-                      Item('stim_threshold', label='Threshold',
-                           tooltip=tooltips['stim_threshold']),
-                      HGroup(Item('test_stim', enabled_when='can_test_stim',
-                                  show_label=False),
-                             Item('plot_raw', enabled_when='can_test_stim',
-                                  show_label=False),
-                             show_labels=False),
-                      label='Events', show_border=True),
-               HGroup(Item('save_as', enabled_when='can_save'), spring,
-                      'clear_all', show_labels=False),
-               Item('queue_feedback', show_label=False, style='readonly'),
-               Item('queue_current', show_label=False, style='readonly'),
-               Item('queue_len_str', show_label=False, style='readonly')
-               )
+def _load_model_config() -> Kit2FiffModel:
+    """Load saved configuration values and return validated Kit2FiffModel."""
+    config = get_config(home_dir=os.environ.get("_MNE_FAKE_HOME_DIR"))
+    stim_threshold = 1.0
+    if "MNE_KIT2FIFF_STIM_CHANNEL_THRESHOLD" in config:
+        try:
+            stim_threshold = float(config["MNE_KIT2FIFF_STIM_CHANNEL_THRESHOLD"])
+        except ValueError:
+            warn(
+                "Ignoring invalid configuration value for "
+                "MNE_KIT2FIFF_STIM_CHANNEL_THRESHOLD: %r (expected float)"
+                % (config["MNE_KIT2FIFF_STIM_CHANNEL_THRESHOLD"],)
+            )
+    stim_slope = config.get("MNE_KIT2FIFF_STIM_CHANNEL_SLOPE", "-")
+    if stim_slope not in "+-":
+        warn(
+            "Ignoring invalid configuration value for "
+            "MNE_KIT2FIFF_STIM_CHANNEL_SLOPE: %s (expected + or -)" % stim_slope
+        )
+        stim_slope = "-"
+    stim_coding = config.get("MNE_KIT2FIFF_STIM_CHANNEL_CODING", ">")
+    if stim_coding not in ("<", ">", "channel"):
+        warn(
+            "Ignoring invalid configuration value for "
+            "MNE_KIT2FIFF_STIM_CHANNEL_CODING: %s (expected <, > or "
+            "channel)" % stim_coding
+        )
+        stim_coding = ">"
+    return Kit2FiffModel(
+        stim_chs=config.get("MNE_KIT2FIFF_STIM_CHANNELS", ""),
+        stim_coding=stim_coding,
+        stim_slope=stim_slope,
+        stim_threshold=stim_threshold,
+        show_gui=True,
     )
 
-    def __init__(self, *args, **kwargs):  # noqa: D102
-        super(Kit2FiffPanel, self).__init__(*args, **kwargs)
 
-        # setup save worker
-        def worker():  # noqa: D102
+class Kit2FiffPanel(HasTraits):
+    """Controller for kit2fiff conversion panel state and save queue."""
+
+    model = Any()  # Kit2FiffModel
+
+    # Visualization
+    scene = Any()  # pyvistaqt.QtInteractor
+    fid_obj = Any()  # PointObject
+    elp_obj = Any()  # PointObject
+    hsp_obj = Any()  # PointObject
+
+    # Save queue state (for UI feedback)
+    queue = Any()
+    queue_feedback = Unicode()
+    queue_current = Unicode()
+    queue_len = Int(0)
+
+    def __init__(
+        self,
+        *,
+        scene: QtInteractor | None = None,
+        model: Kit2FiffModel | None = None,
+    ) -> None:
+        super().__init__(scene=scene, model=model)
+        if self.queue is None:
+            self.queue = queue.Queue()
+        self._start_save_worker()
+
+        self.fid_obj = PointObject(
+            scene=self.scene, color=(0.1, 1.0, 0.1), point_scale=5e-3, name="Fiducials"
+        )
+        self.elp_obj = PointObject(
+            scene=self.scene,
+            color=(0.196, 0.196, 0.863),
+            point_scale=1e-2,
+            opacity=0.2,
+            name="ELP",
+        )
+        self.hsp_obj = PointObject(
+            scene=self.scene, color=(0.784, 0.784, 0.784), point_scale=2e-3, name="HSP"
+        )
+
+        model = self.model
+        if model is not None:
+            model.observe(self._update_fid, names=["fid", "head_dev_trans"])
+            model.observe(self._update_hsp, names=["hsp", "head_dev_trans"])
+            model.observe(self._update_elp, names=["elp", "head_dev_trans"])
+            self._update_fid()
+            self._update_elp()
+            self._update_hsp()
+
+    def _start_save_worker(self) -> None:
+        def worker() -> None:
             while True:
                 raw, fname = self.queue.get()
-                basename = os.path.basename(fname)
+                basename = Path(fname).name
                 self.queue_len -= 1
-                self.queue_current = 'Processing: %s' % basename
-
-                # task
+                self.queue_current = "Processing: %s" % basename
                 try:
                     raw.save(fname, overwrite=True)
-                except Exception as err:
-                    self.error = str(err)
-                    res = "Error saving: %s"
-                else:
                     res = "Saved: %s"
-
-                # finalize
-                self.queue_current = ''
+                except Exception as err:
+                    logger.warning("Error saving %s: %s", basename, err)
+                    res = "Error saving: %s"
+                self.queue_current = ""
                 self.queue_feedback = res % basename
                 self.queue.task_done()
 
-        t = Thread(target=worker)
-        t.daemon = True
+        t = Thread(target=worker, daemon=True)
         t.start()
 
-        # setup mayavi visualization
-        self.fid_obj = PointObject(scene=self.scene, color=(0.1, 1., 0.1),
-                                   point_scale=5e-3, name='Fiducials')
-        self._update_fid()
-        self.elp_obj = PointObject(scene=self.scene,
-                                   color=(0.196, 0.196, 0.863),
-                                   point_scale=1e-2, opacity=.2, name='ELP')
-        self._update_elp()
-        self.hsp_obj = PointObject(scene=self.scene, color=(0.784,) * 3,
-                                   point_scale=2e-3, name='HSP')
-        self._update_hsp()
-        self.scene.camera.parallel_scale = 0.15
-        self.scene.mlab.view(0, 0, .15)
+    def _update_fid(self, change: Bunch | None = None) -> None:
+        if self.fid_obj is not None and self.model is not None:
+            self.fid_obj.points = apply_trans(self.model.head_dev_trans, self.model.fid)
 
-    @on_trait_change('model:fid,model:head_dev_trans')
-    def _update_fid(self):
-        if self.fid_obj is not None:
-            self.fid_obj.points = apply_trans(self.model.head_dev_trans,
-                                              self.model.fid)
+    def _update_hsp(self, change: Bunch | None = None) -> None:
+        if self.hsp_obj is not None and self.model is not None:
+            self.hsp_obj.points = apply_trans(self.model.head_dev_trans, self.model.hsp)
 
-    @on_trait_change('model:hsp,model:head_dev_trans')
-    def _update_hsp(self):
-        if self.hsp_obj is not None:
-            self.hsp_obj.points = apply_trans(self.model.head_dev_trans,
-                                              self.model.hsp)
+    def _update_elp(self, change: Bunch | None = None) -> None:
+        if self.elp_obj is not None and self.model is not None:
+            self.elp_obj.points = apply_trans(self.model.head_dev_trans, self.model.elp)
 
-    @on_trait_change('model:elp,model:head_dev_trans')
-    def _update_elp(self):
-        if self.elp_obj is not None:
-            self.elp_obj.points = apply_trans(self.model.head_dev_trans,
-                                              self.model.elp)
-
-    def _clear_all_fired(self):
-        self.model.clear_all()
-
-    @cached_property
-    def _get_queue_len_str(self):
-        if self.queue_len:
-            return "Queue length: %i" % self.queue_len
-        else:
-            return ''
-
-    def _plot_raw_fired(self):
-        self.model.raw.plot()
-
-    def _reset_dig_fired(self):
-        self.reset_traits(['hsp_file', 'fid_file'])
-
-    def _save_as_fired(self):
-        # create raw
+    def save_as(self) -> None:
+        """Prompt for a save path and queue the raw file for saving."""
+        model = self.model
+        parent = model.parent
         try:
-            raw = self.model.get_raw()
+            raw = model.get_raw()
         except Exception as err:
-            error(None, str(err), "Error Creating KIT Raw")
+            QMessageBox.critical(parent, "Error Creating KIT Raw", str(err))
             raise
 
-        # find default path
-        stem, _ = os.path.splitext(self.sqd_file)
-        if not stem.endswith('raw'):
-            stem += '-raw'
-        default_path = stem + '.fif'
+        sqd_path = Path(model.sqd_file)
+        stem = sqd_path.stem
+        if not stem.endswith("raw"):
+            stem += "-raw"
+        default_path = sqd_path.with_name(stem + ".fif")
 
-        # save as dialog
-        dlg = FileDialog(action="save as",
-                         wildcard="fiff raw file (*.fif)|*.fif",
-                         default_path=default_path)
-        dlg.open()
-        if dlg.return_code != OK:
+        path, _ = QFileDialog.getSaveFileName(
+            parent, "Save FIFF", str(default_path), "FIFF raw file (*.fif)"
+        )
+        if not path:
             return
+        path = Path(path)
+        if path.suffix != ".fif":
+            path = path.with_name(path.name + ".fif")
+        if path.exists():
+            reply = QMessageBox.question(
+                parent,
+                "Overwrite File?",
+                "The file %r already exists. Replace it?" % str(path),
+            )
+            if reply != QMessageBox.Yes:  # ty: ignore[unresolved-attribute]
+                return
 
-        fname = dlg.path
-        if not fname.endswith('.fif'):
-            fname += '.fif'
-            if os.path.exists(fname):
-                answer = confirm(None, "The file %r already exists. Should it "
-                                 "be replaced?", "Overwrite File?")
-                if answer != YES:
-                    return
-
-        self.queue.put((raw, fname))
+        self.queue.put((raw, path))
         self.queue_len += 1
 
-    def _test_stim_fired(self):
+    def test_stim(self) -> None:
+        """Show a count of events with current stim settings."""
+        parent = self.model.parent
         try:
             events = self.model.get_event_info()
         except Exception as err:
-            error(None, "Error reading events from SQD data file: %s (Check "
-                  "the terminal output for details)" % str(err),
-                  "Error Reading events from SQD file")
+            QMessageBox.critical(
+                parent,
+                "Error Reading Events from SQD File",
+                "Error reading events: %s" % str(err),
+            )
             raise
 
-        if len(events) == 0:
-            information(None, "No events were found with the current "
-                        "settings.", "No Events Found")
+        if not events:
+            QMessageBox.information(
+                parent,
+                "No Events Found",
+                "No events were found with the current settings.",
+            )
         else:
             lines = ["Events found (ID: n events):"]
             for id_ in sorted(events):
                 lines.append("%3i: \t%i" % (id_, events[id_]))
-            information(None, '\n'.join(lines), "Events in SQD File")
+            QMessageBox.information(parent, "Events in SQD File", "\n".join(lines))
 
 
-class Kit2FiffFrame(HasTraits):
-    """GUI for interpolating between two KIT marker files."""
+class Kit2FiffFrame(QMainWindow):
+    """Qt window for KIT to FIF conversion."""
 
-    model = Instance(Kit2FiffModel)
-    scene = Instance(MlabSceneModel, ())
-    headview = Instance(HeadViewController)
-    marker_panel = Instance(CombineMarkersPanel)
-    kit2fiff_panel = Instance(Kit2FiffPanel)
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("KIT to FIFF Conversion")
+        self.setAttribute(Qt.WA_DeleteOnClose, True)  # ty: ignore[unresolved-attribute]
+        self.resize(1100, 700)
 
-    view = View(HGroup(VGroup(Item('marker_panel', style='custom'),
-                              show_labels=False),
-                       VGroup(Item('scene',
-                                   editor=SceneEditor(scene_class=MayaviScene),
-                                   dock='vertical', show_label=False),
-                              VGroup(Item('headview', style='custom'),
-                                     show_labels=False),
-                              ),
-                       VGroup(Item('kit2fiff_panel', style='custom'),
-                              show_labels=False),
-                       show_labels=False,
-                       ),
-                handler=Kit2FiffFrameHandler(),
-                height=700, resizable=True, buttons=NoButtons)
+        self.model = _load_model_config()
+        self.model.parent = self
 
-    def __init__(self, *args, **kwargs):  # noqa: D102
-        logger.debug(
-            "Initializing Kit2fiff-GUI with %s backend", ETSConfig.toolkit)
-        HasTraits.__init__(self, *args, **kwargs)
+        # pyvista scene embedded directly as a QWidget.
+        self._scene_widget = QWidget(self)
+        QVBoxLayout(self._scene_widget)
+        self.scene = embed_pyvista_scene(self._scene_widget)
 
-    # can't be static method due to Traits
-    def _model_default(self):
-        # load configuration values and make sure they're valid
-        config = get_config(home_dir=os.environ.get('_MNE_FAKE_HOME_DIR'))
-        stim_threshold = 1.
-        if 'MNE_KIT2FIFF_STIM_CHANNEL_THRESHOLD' in config:
-            try:
-                stim_threshold = float(
-                    config['MNE_KIT2FIFF_STIM_CHANNEL_THRESHOLD'])
-            except ValueError:
-                warn("Ignoring invalid configuration value for "
-                     "MNE_KIT2FIFF_STIM_CHANNEL_THRESHOLD: %r (expected "
-                     "float)" %
-                     (config['MNE_KIT2FIFF_STIM_CHANNEL_THRESHOLD'],))
-        stim_slope = config.get('MNE_KIT2FIFF_STIM_CHANNEL_SLOPE', '-')
-        if stim_slope not in '+-':
-            warn("Ignoring invalid configuration value for "
-                 "MNE_KIT2FIFF_STIM_CHANNEL_THRESHOLD: %s (expected + or -)" %
-                 stim_slope)
-            stim_slope = '-'
-        stim_coding = config.get('MNE_KIT2FIFF_STIM_CHANNEL_CODING', '>')
-        if stim_coding not in ('<', '>', 'channel'):
-            warn("Ignoring invalid configuration value for "
-                 "MNE_KIT2FIFF_STIM_CHANNEL_CODING: %s (expected <, > or "
-                 "channel)" % stim_coding)
-            stim_coding = '>'
-        return Kit2FiffModel(
-            stim_chs=config.get('MNE_KIT2FIFF_STIM_CHANNELS', ''),
-            stim_coding=stim_coding,
-            stim_slope=stim_slope,
-            stim_threshold=stim_threshold,
-            show_gui=True)
+        self.headview = HeadViewController(scene=self.scene, scale=0.16, system="RAS")
+        self.kit2fiff_panel = Kit2FiffPanel(scene=self.scene, model=self.model)
+        self.marker_panel = CombineMarkersPanel(
+            scene=self.scene, model=self.model.markers, trans=als_ras_trans, parent=self
+        )
 
-    def _headview_default(self):
-        return HeadViewController(scene=self.scene, scale=160, system='RAS')
+        self._build_ui()
 
-    def _kit2fiff_panel_default(self):
-        return Kit2FiffPanel(scene=self.scene, model=self.model)
+        # Update feedback labels when queue state changes
+        self.kit2fiff_panel.observe(
+            lambda ch: self._queue_label.setText(ch["new"]), names=["queue_feedback"]
+        )
+        self.kit2fiff_panel.observe(
+            lambda ch: self._queue_current_label.setText(ch["new"]),
+            names=["queue_current"],
+        )
+        self.kit2fiff_panel.observe(
+            lambda ch: self._queue_len_label.setText(
+                "Queue: %i" % ch["new"] if ch["new"] else ""
+            ),
+            names=["queue_len"],
+        )
 
-    def _marker_panel_default(self):
-        return CombineMarkersPanel(scene=self.scene, model=self.model.markers,
-                                   trans=als_ras_trans)
+        # Update button states from model
+        self.model.observe(
+            self._update_ui_state,
+            names=[
+                "can_save",
+                "can_test_stim",
+                "stim_chs_ok",
+                "stim_chs_comment",
+                "misc_chs_desc",
+                "sqd_file",
+                "hsp_file",
+                "fid_file",
+                "sqd_fname",
+                "hsp_fname",
+                "fid_fname",
+                "use_mrk",
+            ],
+        )
+        self._update_ui_state()
 
-    def save_config(self, home_dir=None):
-        """Write configuration values."""
-        set_config('MNE_KIT2FIFF_STIM_CHANNELS', self.model.stim_chs, home_dir,
-                   set_env=False)
-        set_config('MNE_KIT2FIFF_STIM_CHANNEL_CODING', self.model.stim_coding,
-                   home_dir, set_env=False)
-        set_config('MNE_KIT2FIFF_STIM_CHANNEL_SLOPE', self.model.stim_slope,
-                   home_dir, set_env=False)
-        set_config('MNE_KIT2FIFF_STIM_CHANNEL_THRESHOLD',
-                   str(self.model.stim_threshold), home_dir, set_env=False)
+        # start from a top-down view, matching the mayavi GUI's default
+        self.headview.on_set_view("top")
+
+    # ------------------------------------------------------------------
+    # UI construction
+    # ------------------------------------------------------------------
+
+    def _build_ui(self) -> None:
+        central = QWidget(self)
+        self.setCentralWidget(central)
+        outer = QHBoxLayout(central)
+
+        # Give the 3D scene the lion's share of the width: unlike the original
+        # mayavi layout, the plot is useful to watch during every adjustment.
+        # ---- left column: marker panel ----
+        outer.addLayout(self._build_marker_column(), stretch=1)
+
+        # ---- center: scene + head view controls ----
+        center = QVBoxLayout()
+        center.addWidget(self._scene_widget, stretch=4)
+        center.addWidget(build_head_view_group(self.headview))
+        outer.addLayout(center, stretch=2)
+
+        # ---- right column: kit2fiff panel ----
+        outer.addLayout(self._build_kit2fiff_column(), stretch=1)
+
+    def _build_marker_column(self) -> QVBoxLayout:
+        layout = QVBoxLayout()
+        markers = self.model.markers
+        mp = self.marker_panel
+        wildcard = "*.sqd *.mrk *.txt *.pickled"
+        layout.addWidget(
+            self._build_source_marker_group(
+                "Source Marker 1", "mrk1", markers.mrk1, mp.mrk1_obj, wildcard
+            )
+        )
+        layout.addWidget(
+            self._build_source_marker_group(
+                "Source Marker 2", "mrk2", markers.mrk2, mp.mrk2_obj, wildcard
+            )
+        )
+
+        g3 = QGroupBox("Stats")
+        g3_layout = QHBoxLayout(g3)
+        g3_layout.addWidget(QLabel("Distance:"))
+        self._distance_label = QLabel("")
+        g3_layout.addWidget(self._distance_label, stretch=1)
+        markers.observe(
+            lambda ch: self._distance_label.setText(ch["new"]), names=["distance"]
+        )
+        layout.addWidget(g3)
+
+        g4 = QGroupBox("New Marker")
+        g4_layout = QVBoxLayout(g4)
+        # "Method" as a pair of radio buttons, matching the original mayavi GUI
+        method_row = QHBoxLayout()
+        method_row.addWidget(QLabel("Method:"))
+        method_group = QButtonGroup(g4)
+        for text in ("Transform", "Average"):
+            rb = QRadioButton(text)
+            rb.setObjectName("mrk3_method_%s" % text.lower())
+            rb.setChecked(markers.mrk3.method == text)
+            rb.toggled.connect(
+                lambda checked, t=text: (
+                    setattr(markers.mrk3, "method", t) if checked else None
+                )
+            )
+            method_group.addButton(rb)
+            method_row.addWidget(rb)
+        method_row.addStretch()
+
+        def _sync_method(change: Bunch) -> None:
+            for rb in method_group.buttons():
+                rb.setChecked(rb.text() == change["new"])
+
+        markers.mrk3.observe(_sync_method, names=["method"])
+        g4_layout.addLayout(method_row)
+
+        save3 = QPushButton("Save as")
+        save3.setObjectName("mrk3_save")
+        save3.clicked.connect(lambda *_: markers.mrk3.save_as())
+        save3.setEnabled(markers.mrk3.can_save)
+        markers.mrk3.observe(lambda ch: save3.setEnabled(ch["new"]), names=["can_save"])
+        g4_layout.addWidget(save3)
+        g4_layout.addLayout(self._build_point_object_row("mrk3", mp.mrk3_obj))
+        layout.addWidget(g4)
+        return layout
+
+    def _build_source_marker_group(
+        self,
+        title: str,
+        name: str,
+        mrk: MarkerPointSource,
+        obj: PointObject,
+        wildcard: str,
+    ) -> QGroupBox:
+        """Build a group box with the full set of controls for one source."""
+        g = QGroupBox(title)
+        layout = QVBoxLayout(g)
+        layout.addLayout(self._build_marker_file_row(name, mrk, wildcard))
+        layout.addLayout(self._build_marker_use_row(name, mrk))
+        layout.addLayout(self._build_marker_button_row(name, mrk))
+        layout.addLayout(self._build_point_object_row(name, obj))
+        return g
+
+    def _build_marker_file_row(
+        self, name: str, mrk: MarkerPointSource, wildcard: str
+    ) -> QVBoxLayout:
+        # the (read-only) line edit mirrors the model's file path, with the
+        # basename shown separately so it stays visible for long paths
+        outer = QVBoxLayout()
+        row = QHBoxLayout()
+        edit = QLineEdit()
+        edit.setObjectName("%s_file" % name)
+        edit.setReadOnly(True)
+        edit.setPlaceholderText("File path...")
+        edit.setMinimumWidth(60)  # allow the panel to be narrow (basename below)
+        browse = QPushButton("Browse")
+        browse.setObjectName("%s_browse" % name)
+        browse.clicked.connect(
+            lambda: self._browse_file(edit, wildcard, lambda p: setattr(mrk, "file", p))
+        )
+        mrk.observe(lambda ch: edit.setText(ch["new"]), names=["file"])
+        row.addWidget(edit)
+        row.addWidget(browse)
+        outer.addLayout(row)
+
+        basename = QLabel(mrk.name)
+        basename.setObjectName("%s_name" % name)
+        mrk.observe(lambda ch: basename.setText(ch["new"]), names=["name"])
+        outer.addWidget(basename)
+        return outer
+
+    def _build_marker_use_row(self, name: str, mrk: MarkerPointSource) -> QHBoxLayout:
+        # checkboxes selecting which points (0-4) feed the interpolation
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Use:"))
+        checks = []
+        for i in range(5):
+            cb = QCheckBox(str(i))
+            cb.setObjectName("%s_use_%i" % (name, i))
+            cb.setChecked(i in mrk.use)
+            cb.setEnabled(mrk.enabled)
+            cb.toggled.connect(
+                lambda checked, idx=i: self._toggle_use(mrk, idx, checked)
+            )
+            row.addWidget(cb)
+            checks.append(cb)
+
+        def _sync_use(change):
+            for idx, cb in enumerate(checks):
+                cb.blockSignals(True)
+                cb.setChecked(idx in change["new"])
+                cb.blockSignals(False)
+
+        mrk.observe(_sync_use, names=["use"])
+        mrk.observe(
+            lambda ch: [cb.setEnabled(ch["new"]) for cb in checks], names=["enabled"]
+        )
+        return row
+
+    def _build_marker_button_row(
+        self, name: str, mrk: MarkerPointSource
+    ) -> QVBoxLayout:
+        # Two compact rows keep the marker panel narrow (leaving width for the
+        # 3D scene): file lifecycle on top, point-order ops below. Clear and
+        # Save as are gated on there being data (can_save).
+        outer = QVBoxLayout()
+        rows = {"a": QHBoxLayout(), "b": QHBoxLayout()}
+        gated = []
+        for key, label, handler, r in (
+            ("clear", "Clear", mrk.clear, "a"),
+            ("edit", "Edit", mrk.edit, "a"),
+            ("save", "Save as", mrk.save_as, "a"),
+            ("switch", "Switch Left/Right", mrk.switch_left_right, "b"),
+            ("reorder", "Reorder", mrk.reorder, "b"),
+        ):
+            btn = QPushButton(label)
+            btn.setObjectName("%s_%s" % (name, key))
+            btn.clicked.connect(lambda *_, h=handler: h())
+            btn.setEnabled(mrk.can_save if key in ("clear", "save") else True)
+            rows[r].addWidget(btn)
+            if key in ("clear", "save"):
+                gated.append(btn)
+        outer.addLayout(rows["a"])
+        outer.addLayout(rows["b"])
+        mrk.observe(
+            lambda ch: [btn.setEnabled(ch["new"]) for btn in gated], names=["can_save"]
+        )
+        return outer
+
+    def _build_point_object_row(self, name: str, obj: PointObject) -> QHBoxLayout:
+        """Build visualization controls (Show/color/Size/Label) for a glyph."""
+        row = QHBoxLayout()
+
+        show = QCheckBox("Show")
+        show.setObjectName("%s_show" % name)
+        show.setChecked(obj.visible)
+        show.toggled.connect(lambda checked: setattr(obj, "visible", checked))
+        obj.observe(lambda ch: show.setChecked(ch["new"]), names=["visible"])
+        row.addWidget(show)
+
+        color = QPushButton()
+        color.setObjectName("%s_color" % name)
+        color.clicked.connect(lambda: self._pick_color(obj))
+        self._set_color_swatch(color, obj.color)
+        obj.observe(
+            lambda ch: self._set_color_swatch(color, ch["new"]), names=["color"]
+        )
+        row.addWidget(color)
+
+        # glyph size: a compact spin box (its tooltip names it, so no "Size:"
+        # label is needed -- saves width in this thrice-repeated row)
+        size = QDoubleSpinBox()
+        size.setObjectName("%s_size" % name)
+        size.setToolTip("Glyph size (m)")
+        size.setDecimals(4)
+        size.setRange(0.0, 1.0)
+        size.setSingleStep(1e-3)
+        size.setValue(obj.point_scale)
+        size.setMaximumWidth(72)
+        size.valueChanged.connect(lambda v: setattr(obj, "point_scale", v))
+        obj.observe(lambda ch: size.setValue(ch["new"]), names=["point_scale"])
+        row.addWidget(size)
+
+        label = QCheckBox("Label")
+        label.setObjectName("%s_label" % name)
+        label.setChecked(obj.label)
+        label.toggled.connect(lambda checked: setattr(obj, "label", checked))
+        obj.observe(lambda ch: label.setChecked(ch["new"]), names=["label"])
+        row.addWidget(label)
+
+        return row
+
+    @staticmethod
+    def _select_radio(group: QButtonGroup, obj_name: str) -> None:
+        """Check the radio in ``group`` with the given objectName, if not already."""
+        for rb in group.buttons():
+            if rb.objectName() == obj_name and not rb.isChecked():
+                rb.setChecked(True)
+                break
+
+    @staticmethod
+    def _set_color_swatch(button: QPushButton, color: Sequence[float]) -> None:
+        qcolor = QColor.fromRgbF(*color[:3])
+        button.setText("(%d,%d,%d)" % (qcolor.red(), qcolor.green(), qcolor.blue()))
+        # pick a readable text color based on the swatch's luminance
+        luminance = 0.299 * color[0] + 0.587 * color[1] + 0.114 * color[2]
+        fg = "black" if luminance > 0.5 else "white"
+        button.setStyleSheet("background-color: %s; color: %s" % (qcolor.name(), fg))
+
+    def _pick_color(self, obj: PointObject) -> None:
+        qcolor = QColorDialog.getColor(QColor.fromRgbF(*obj.color[:3]), self)
+        if qcolor.isValid():
+            obj.color = (qcolor.redF(), qcolor.greenF(), qcolor.blueF())
+
+    def _toggle_use(self, mrk: MarkerPointSource, idx: int, checked: bool) -> None:
+        use = set(mrk.use)
+        if checked:
+            use.add(idx)
+        else:
+            use.discard(idx)
+        mrk.use = sorted(use)
+
+    def _browse_file(
+        self, edit: QLineEdit, wildcard: str, callback: Callable[[str], None]
+    ) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Select File", "", wildcard)
+        if path:
+            edit.setText(path)
+            callback(path)
+
+    def _build_kit2fiff_column(self) -> QVBoxLayout:
+        layout = QVBoxLayout()
+
+        # Sources group
+        sg = QGroupBox("Sources")
+        sg_layout = QVBoxLayout(sg)
+
+        row = QHBoxLayout()
+        self._sqd_edit = QLineEdit()
+        self._sqd_edit.setReadOnly(True)
+        self._sqd_edit.setPlaceholderText("KIT data file...")
+        self._sqd_edit.setMinimumWidth(60)
+        sqd_btn = QPushButton("Browse")
+        sqd_btn.clicked.connect(
+            lambda: self._browse_file(
+                self._sqd_edit,
+                kit_con_wildcard,
+                lambda p: setattr(self.model, "sqd_file", p),
+            )
+        )
+        row.addWidget(QLabel("Data:"))
+        row.addWidget(self._sqd_edit)
+        row.addWidget(sqd_btn)
+        sg_layout.addLayout(row)
+        self._sqd_fname_label = QLabel("-")
+        sg_layout.addWidget(self._sqd_fname_label)
+
+        row2 = QHBoxLayout()
+        self._hsp_edit = QLineEdit()
+        self._hsp_edit.setReadOnly(True)
+        self._hsp_edit.setPlaceholderText("Digitizer head shape...")
+        self._hsp_edit.setMinimumWidth(60)
+        hsp_btn = QPushButton("Browse")
+        hsp_btn.clicked.connect(
+            lambda: self._browse_file(
+                self._hsp_edit,
+                hsp_wildcard,
+                lambda p: setattr(self.model, "hsp_file", p),
+            )
+        )
+        hsp_label = QLabel("HSP:")
+        hsp_label.setToolTip("Digitizer head shape points")
+        row2.addWidget(hsp_label)
+        row2.addWidget(self._hsp_edit)
+        row2.addWidget(hsp_btn)
+        sg_layout.addLayout(row2)
+        self._hsp_fname_label = QLabel("-")
+        sg_layout.addWidget(self._hsp_fname_label)
+
+        row3 = QHBoxLayout()
+        self._fid_edit = QLineEdit()
+        self._fid_edit.setReadOnly(True)
+        self._fid_edit.setPlaceholderText("Digitizer fiducials...")
+        self._fid_edit.setMinimumWidth(60)
+        fid_btn = QPushButton("Browse")
+        fid_btn.clicked.connect(
+            lambda: self._browse_file(
+                self._fid_edit,
+                elp_wildcard,
+                lambda p: setattr(self.model, "fid_file", p),
+            )
+        )
+        fid_label = QLabel("FID:")
+        fid_label.setToolTip("Digitizer fiducials (ELP)")
+        row3.addWidget(fid_label)
+        row3.addWidget(self._fid_edit)
+        row3.addWidget(fid_btn)
+        sg_layout.addLayout(row3)
+        self._fid_fname_label = QLabel("-")
+        sg_layout.addWidget(self._fid_fname_label)
+
+        clear_dig_btn = QPushButton("Clear Digitizer Files")
+        clear_dig_btn.clicked.connect(
+            lambda: [
+                setattr(self.model, "hsp_file", ""),
+                setattr(self.model, "fid_file", ""),
+            ]
+        )
+        sg_layout.addWidget(clear_dig_btn)
+
+        # "Use mrk" checkboxes: which marker points feed the dev->head transform
+        use_row = QHBoxLayout()
+        use_row.addWidget(QLabel("Use mrk:"))
+        self._use_mrk_checks = []
+        for i in range(5):
+            cb = QCheckBox(str(i))
+            cb.setObjectName("use_mrk_%i" % i)
+            cb.setChecked(i in self.model.use_mrk)
+            cb.toggled.connect(
+                lambda checked, idx=i: self._toggle_use_mrk(idx, checked)
+            )
+            use_row.addWidget(cb)
+            self._use_mrk_checks.append(cb)
+        sg_layout.addLayout(use_row)
+        layout.addWidget(sg)
+
+        # Events group -- label-left form layout matching the original mayavi GUI
+        eg = QGroupBox("Events")
+        eg_form = QFormLayout(eg)
+        eg_form.setLabelAlignment(Qt.AlignRight)  # ty: ignore[unresolved-attribute]
+        eg_form.setFieldGrowthPolicy(
+            QFormLayout.AllNonFixedFieldsGrow  # ty: ignore[unresolved-attribute]
+        )
+
+        self._misc_chs_label = QLabel("No SQD file selected...")
+        eg_form.addRow("MISC Channels:", self._misc_chs_label)
+
+        # Event onset: trough (falling, "-") vs peak (rising, "+"). Short labels
+        # keep the row narrow; the voltage direction is in the tooltips.
+        self._slope_group = QButtonGroup(eg)
+        slope_row = QHBoxLayout()
+        for text, slope, tag, tip in (
+            ("Trough", "-", "trough", "Falling edge (5 → 0 V)"),
+            ("Peak", "+", "peak", "Rising edge (0 → 5 V)"),
+        ):
+            rb = QRadioButton(text)
+            rb.setObjectName("stim_slope_%s" % tag)
+            rb.setToolTip(tip)
+            rb.setChecked(self.model.stim_slope == slope)
+            rb.toggled.connect(
+                lambda checked, s=slope: (
+                    setattr(self.model, "stim_slope", s) if checked else None
+                )
+            )
+            self._slope_group.addButton(rb)
+            slope_row.addWidget(rb)
+        slope_row.addStretch()
+        eg_form.addRow("Event Onset:", slope_row)
+        self.model.observe(
+            lambda ch: self._select_radio(
+                self._slope_group,
+                "stim_slope_%s" % {"-": "trough", "+": "peak"}[ch["new"]],
+            ),
+            names=["stim_slope"],
+        )
+
+        # Value coding: binary little-/big-endian or per-channel. A combo box
+        # keeps this 3-way, rarely-changed choice compact -- three radios here
+        # would be the widest row in the panel and squeeze the 3D scene.
+        self._coding_codes = [">", "<", "channel"]
+        coding_combo = QComboBox()
+        coding_combo.setObjectName("stim_coding")
+        coding_combo.addItems(["Little-endian (>)", "Big-endian (<)", "Channel#"])
+        coding_combo.setCurrentIndex(self._coding_codes.index(self.model.stim_coding))
+        coding_combo.currentIndexChanged.connect(
+            lambda i: setattr(self.model, "stim_coding", self._coding_codes[i])
+        )
+        eg_form.addRow("Value Coding:", coding_combo)
+        self.model.observe(
+            lambda ch: coding_combo.setCurrentIndex(
+                self._coding_codes.index(ch["new"])
+            ),
+            names=["stim_coding"],
+        )
+
+        self._stim_chs_edit = QLineEdit(self.model.stim_chs)
+        self._stim_chs_edit.setPlaceholderText("Default (first 8 MISC)")
+        self._stim_chs_edit.editingFinished.connect(
+            lambda: setattr(self.model, "stim_chs", self._stim_chs_edit.text())
+        )
+        eg_form.addRow("Channels:", self._stim_chs_edit)
+
+        self._stim_comment_label = QLabel("")
+        eg_form.addRow("", self._stim_comment_label)
+
+        thr_spin = QDoubleSpinBox()
+        thr_spin.setObjectName("stim_threshold")
+        thr_spin.setRange(0, 100)
+        thr_spin.setValue(self.model.stim_threshold)
+        thr_spin.valueChanged.connect(
+            lambda v: setattr(self.model, "stim_threshold", v)
+        )
+        eg_form.addRow("Threshold:", thr_spin)
+
+        btn_row = QHBoxLayout()
+        self._test_stim_btn = QPushButton("Find Events")
+        self._test_stim_btn.clicked.connect(lambda: self.kit2fiff_panel.test_stim())
+        self._plot_raw_btn = QPushButton("Plot Raw")
+        self._plot_raw_btn.clicked.connect(
+            lambda: self.model.raw.plot() if self.model.raw else None
+        )
+        btn_row.addWidget(self._test_stim_btn)
+        btn_row.addWidget(self._plot_raw_btn)
+        eg_form.addRow(btn_row)
+        layout.addWidget(eg)
+
+        # Save/clear row
+        save_row = QHBoxLayout()
+        self._save_btn = QPushButton("Save FIFF...")
+        self._save_btn.clicked.connect(lambda: self.kit2fiff_panel.save_as())
+        self._clear_btn = QPushButton("Clear All")
+        self._clear_btn.clicked.connect(lambda: self.model.clear_all())
+        save_row.addWidget(self._save_btn)
+        save_row.addWidget(self._clear_btn)
+        layout.addLayout(save_row)
+
+        # Queue feedback
+        self._queue_label = QLabel("")
+        self._queue_current_label = QLabel("")
+        self._queue_len_label = QLabel("")
+        layout.addWidget(self._queue_label)
+        layout.addWidget(self._queue_current_label)
+        layout.addWidget(self._queue_len_label)
+
+        layout.addStretch()
+        return layout
+
+    # ------------------------------------------------------------------
+    # UI state updates
+    # ------------------------------------------------------------------
+
+    def _update_ui_state(self, change: Bunch | None = None) -> None:
+        model = self.model
+        self._save_btn.setEnabled(bool(model.can_save))
+        self._test_stim_btn.setEnabled(bool(model.can_test_stim))
+        self._plot_raw_btn.setEnabled(model.raw is not None)
+        self._misc_chs_label.setText(model.misc_chs_desc)
+        self._stim_comment_label.setText(model.stim_chs_comment)
+        if hasattr(self, "_sqd_fname_label"):
+            # keep the path fields, basename labels, and marker checkboxes in
+            # sync with the model (e.g. after loading files or clear_all)
+            self._sqd_edit.setText(model.sqd_file)
+            self._hsp_edit.setText(model.hsp_file)
+            self._fid_edit.setText(model.fid_file)
+            self._sqd_fname_label.setText(model.sqd_fname)
+            self._hsp_fname_label.setText(model.hsp_fname)
+            self._fid_fname_label.setText(model.fid_fname)
+            for idx, cb in enumerate(self._use_mrk_checks):
+                cb.blockSignals(True)
+                cb.setChecked(idx in model.use_mrk)
+                cb.blockSignals(False)
+
+    def _toggle_use_mrk(self, idx: int, checked: bool) -> None:
+        use = set(self.model.use_mrk)
+        if checked:
+            use.add(idx)
+        else:
+            use.discard(idx)
+        self.model.use_mrk = sorted(use)
+
+    # ------------------------------------------------------------------
+    # Config persistence / window lifecycle
+    # ------------------------------------------------------------------
+
+    def save_config(self, home_dir: str | None = None) -> None:
+        """Write configuration values to mne config."""
+        model = self.model
+        set_config(
+            "MNE_KIT2FIFF_STIM_CHANNELS", model.stim_chs, home_dir, set_env=False
+        )
+        set_config(
+            "MNE_KIT2FIFF_STIM_CHANNEL_CODING",
+            model.stim_coding,
+            home_dir,
+            set_env=False,
+        )
+        set_config(
+            "MNE_KIT2FIFF_STIM_CHANNEL_SLOPE", model.stim_slope, home_dir, set_env=False
+        )
+        set_config(
+            "MNE_KIT2FIFF_STIM_CHANNEL_THRESHOLD",
+            str(model.stim_threshold),
+            home_dir,
+            set_env=False,
+        )
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """Veto closing while files are still being saved."""
+        if self.kit2fiff_panel.queue.unfinished_tasks:
+            QMessageBox.information(
+                self,
+                "Saving Still in Progress",
+                "Can not close the window while saving is still in progress. "
+                "Please wait until all files are processed.",
+            )
+            event.ignore()
+            return
+        try:
+            self.save_config()
+        except Exception as exc:
+            warn("Error saving GUI configuration:\n%s" % exc)
+        event.accept()
+        self.scene.close()

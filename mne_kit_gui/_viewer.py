@@ -1,63 +1,88 @@
 # -*- coding: utf-8 -*-
-"""Mayavi/traits GUI visualization elements."""
+"""PyVista/traitlets GUI visualization elements."""
 
 # Authors: Christian Brodbeck <christianbrodbeck@nyu.edu>
 #
 # License: BSD-3-Clause
 
 import numpy as np
+import pyvista as pv
+from pyvistaqt import QtInteractor
+from vtkmodules.vtkFiltersSources import vtkSphereSource
 
-from mayavi.mlab import pipeline, text3d
-from mayavi.modules.glyph import Glyph
-from mayavi.modules.surface import Surface
-from mayavi.sources.vtk_data_source import VTKDataSource
-from mayavi.tools.mlab_scene_model import MlabSceneModel
-from traits.api import (HasTraits, HasPrivateTraits, on_trait_change,
-                        Instance, Array, Bool, Button, Enum, Float, Int, List,
-                        Range, Str, Property, cached_property, ArrayOrNone)
-from traitsui.api import (View, Item, HGroup, VGrid, VGroup, Spring,
-                          TextEditor)
-from tvtk.api import tvtk
+from qtpy.QtWidgets import (
+    QComboBox,
+    QDoubleSpinBox,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
-from mne.defaults import DEFAULTS
-from mne.surface import _CheckInside, _DistanceQuery
-from mne.transforms import apply_trans, rotation
-
-from ._utils import _create_mesh_surf, _oct_glyph, _toggle_mlab_render
-
-try:
-    from traitsui.api import RGBColor
-except ImportError:
-    from traits.api import RGBColor
-
-headview_borders = VGroup(Item('headview', style='custom', show_label=False),
-                          show_border=True, label='View')
+from traitlets import HasTraits, Any, Bool, Bunch, Float, Int, List, Unicode, observe
 
 
-def _mm_fmt(x):
+def _mm_fmt(x: float) -> str:
     """Format data in units of mm."""
-    return '%0.1f' % x
+    return "%0.1f" % x
 
 
-laggy_float_editor_mm = TextEditor(auto_set=False, enter_set=True,
-                                   evaluate=float,
-                                   format_func=lambda x: '%0.1f' % x)
+def embed_pyvista_scene(parent_widget: QWidget) -> QtInteractor:
+    """Embed a pyvistaqt scene in a Qt widget.
 
-laggy_float_editor_scale = TextEditor(auto_set=False, enter_set=True,
-                                      evaluate=float,
-                                      format_func=lambda x: '%0.1f' % x)
+    Parameters
+    ----------
+    parent_widget : QWidget
+        A widget with a layout already set, to which the plotter's Qt
+        control will be added.
 
-laggy_float_editor_headscale = TextEditor(auto_set=False, enter_set=True,
-                                          evaluate=float,
-                                          format_func=lambda x: '%0.3f' % x)
+    Returns
+    -------
+    plotter : pyvistaqt.QtInteractor
+        The plotter, which is itself a QWidget embedded in
+        ``parent_widget`` and is used directly for all 3D plotting
+        (``plotter.add_mesh``, ``plotter.camera``, etc.).
+    """
+    # "three lights" is pyvista's port of mayavi's default "raymond" rig
+    # (three white camera lights at intensity 1.0/0.6/0.5); the default
+    # vtkLightKit has a weaker (0.75), warm-tinted key light that renders
+    # every color noticeably darker than the original mayavi GUI.
+    plotter = QtInteractor(parent_widget, lighting="three lights")
+    plotter.set_background((0.5, 0.5, 0.5))
+    layout = parent_widget.layout()
+    assert layout is not None  # the caller sets a layout before calling
+    layout.addWidget(plotter)
+    return plotter
 
-laggy_float_editor_weight = TextEditor(auto_set=False, enter_set=True,
-                                       evaluate=float,
-                                       format_func=lambda x: '%0.2f' % x)
 
-laggy_float_editor_deg = TextEditor(auto_set=False, enter_set=True,
-                                    evaluate=float,
-                                    format_func=lambda x: '%0.1f' % x)
+def _sph_to_cart_view(
+    azimuth: float,
+    elevation: float,
+    distance: float,
+    focalpoint: tuple[float, float, float],
+) -> tuple[np.ndarray, tuple[float, float, float]]:
+    """Convert (azimuth, elevation) on a sphere to a camera position.
+
+    Mirrors the convention used by ``mne.transforms._sph_to_cart``:
+    azimuth is the angle in the x-y plane from the x-axis, elevation is
+    the angle from the z-axis.
+    """
+    phi = np.deg2rad(azimuth)
+    theta = np.deg2rad(elevation)
+    position = np.asarray(focalpoint, float) + distance * np.array(
+        [
+            np.sin(theta) * np.cos(phi),
+            np.sin(theta) * np.sin(phi),
+            np.cos(theta),
+        ]
+    )
+    # avoid a degenerate view-up vector when looking down/up the z-axis
+    view_up = (0.0, 0.0, 1.0) if 5.0 <= abs(elevation) <= 175.0 else (0.0, 1.0, 0.0)
+    return position, view_up
+
 
 _BUTTON_WIDTH = -80
 _DEG_WIDTH = -50  # radian floats
@@ -77,7 +102,7 @@ _REDUCED_TEXT_WIDTH = _TEXT_WIDTH - 40 * np.sign(_TEXT_WIDTH)
 _DIG_SOURCE_WIDTH = _TEXT_WIDTH - 50 * np.sign(_TEXT_WIDTH)
 _MRI_FIDUCIALS_WIDTH = _TEXT_WIDTH - 60 * np.sign(_TEXT_WIDTH)
 _SHOW_BORDER = True
-_RESET_LABEL = u"↻"
+_RESET_LABEL = "↻"
 _RESET_WIDTH = _INC_BUTTON_WIDTH
 
 
@@ -92,475 +117,309 @@ class HeadViewController(HasTraits):
         Superior, Inferior.
     """
 
-    system = Enum("RAS", "ALS", "ARI", desc="Coordinate system: directions of "
-                  "the x, y, and z axis.")
-
-    right = Button()
-    front = Button()
-    left = Button()
-    top = Button()
-    interaction = Enum('trackball', 'terrain')
-
+    system = Unicode("RAS")
+    interaction = Unicode("trackball")
     scale = Float(0.16)
+    scene = Any()  # pyvistaqt.QtInteractor
 
-    scene = Instance(MlabSceneModel)
+    @observe("scene")
+    def _scene_changed(self, change: Bunch) -> None:
+        if change["new"] is not None:
+            self._init_view()
 
-    view = View(VGroup(
-        VGrid('0', Item('top', width=_VIEW_BUTTON_WIDTH), '0',
-              Item('right', width=_VIEW_BUTTON_WIDTH),
-              Item('front', width=_VIEW_BUTTON_WIDTH),
-              Item('left', width=_VIEW_BUTTON_WIDTH),
-              columns=3, show_labels=False),
-        '_',
-        HGroup(Item('scale', label='Scale',
-                    editor=laggy_float_editor_headscale,
-                    width=_SCALE_WIDTH, show_label=True),
-               Item('interaction', tooltip='Mouse interaction mode',
-                    show_label=False), Spring()),
-        show_labels=False))
-
-    @on_trait_change('scene.activated')
-    def _init_view(self):
-        self.scene.parallel_projection = True
-
-        # apparently scene,activated happens several times
-        if self.scene.renderer:
-            self.sync_trait('scale', self.scene.camera, 'parallel_scale')
-            # and apparently this does not happen by default:
-            self.on_trait_change(self.scene.render, 'scale')
-            self.interaction = self.interaction  # could be delayed
-
-    @on_trait_change('interaction')
-    def on_set_interaction(self, _, interaction):
-        if self.scene is None or self.scene.interactor is None:
+    def _init_view(self) -> None:
+        scene = self.scene
+        if scene is None:
             return
-        # Ensure we're in the correct orientation for the
-        # InteractorStyleTerrain to have the correct "up"
-        self.on_set_view('front', '')
-        self.scene.mlab.draw()
-        self.scene.interactor.interactor_style = \
-            tvtk.InteractorStyleTerrain() if interaction == 'terrain' else \
-            tvtk.InteractorStyleTrackballCamera()
-        # self.scene.interactor.interactor_style.
-        self.on_set_view('front', '')
-        self.scene.mlab.draw()
+        scene.enable_parallel_projection()
+        scene.camera.parallel_scale = self.scale
+        self.interaction = self.interaction  # apply deferred interaction
 
-    @on_trait_change('top,left,right,front')
-    def on_set_view(self, view, _):
+    @observe("scale")
+    def _scale_changed(self, change: Bunch) -> None:
+        scene = self.scene
+        if scene is not None:
+            scene.camera.parallel_scale = change["new"]
+            scene.render()
+
+    @observe("interaction")
+    def _interaction_changed(self, change: Bunch) -> None:
+        scene = self.scene
+        if scene is None:
+            return
+        interaction = change["new"]
+        kwargs = {"mouse_wheel_zooms": True} if interaction == "terrain" else {}
+        getattr(scene, "enable_%s_style" % interaction)(**kwargs)
+
+    def on_set_view(self, view: str, _: str = "") -> None:
+        """Set a named head view ('front', 'left', 'right', 'top')."""
         if self.scene is None:
             return
 
         system = self.system
-        kwargs = dict(ALS=dict(front=(0, 90, -90),
-                               left=(90, 90, 180),
-                               right=(-90, 90, 0),
-                               top=(0, 0, -90)),
-                      RAS=dict(front=(90., 90., 180),
-                               left=(180, 90, 90),
-                               right=(0., 90, 270),
-                               top=(90, 0, 180)),
-                      ARI=dict(front=(0, 90, 90),
-                               left=(-90, 90, 180),
-                               right=(90, 90, 0),
-                               top=(0, 180, 90)))
+        kwargs = {
+            "ALS": {
+                "front": (0, 90, -90),
+                "left": (90, 90, 180),
+                "right": (-90, 90, 0),
+                "top": (0, 0, -90),
+            },
+            "RAS": {
+                "front": (90.0, 90.0, 180),
+                "left": (180, 90, 90),
+                "right": (0.0, 90, 270),
+                "top": (90, 0, 180),
+            },
+            "ARI": {
+                "front": (0, 90, 90),
+                "left": (-90, 90, 180),
+                "right": (90, 90, 0),
+                "top": (0, 180, 90),
+            },
+        }
         if system not in kwargs:
             raise ValueError("Invalid system: %r" % system)
         if view not in kwargs[system]:
             raise ValueError("Invalid view: %r" % view)
-        kwargs = dict(zip(('azimuth', 'elevation', 'roll'),
-                          kwargs[system][view]))
-        kwargs['focalpoint'] = (0., 0., 0.)
-        self.scene.mlab.view(
-            distance=None,
-            reset_roll=True,
-            figure=self.scene.mayavi_scene,
-            **kwargs,
-        )
+        az, el, roll = kwargs[system][view]
+        distance = self.scene.camera.distance
+        position, view_up = _sph_to_cart_view(az, el, distance, (0.0, 0.0, 0.0))
+        self.scene.camera_position = [tuple(position), (0.0, 0.0, 0.0), view_up]
+        self.scene.camera.roll = roll
+        # Fit the data along the chosen view direction, mirroring the auto-fit
+        # that mayavi's ``mlab.view(distance=None)`` performs. Without this the
+        # parallel-projection scale stays wherever it was set, which can leave
+        # the (meter-scale) geometry an invisible speck.
+        self.scene.reset_camera()
+        self.scale = self.scene.camera.parallel_scale
+        self.scene.render()
 
 
-class Object(HasPrivateTraits):
-    """Represent a 3d object in a mayavi scene."""
+def build_head_view_group(headview: HeadViewController) -> QGroupBox:
+    """Build a Qt "View" group for a :class:`HeadViewController`.
 
-    points = Array(float, shape=(None, 3))
-    nn = Array(float, shape=(None, 3))
-    name = Str
+    Parameters
+    ----------
+    headview : HeadViewController
+        The controller whose scene the returned controls drive.
 
-    scene = Instance(MlabSceneModel, ())
-    src = Instance(VTKDataSource)
+    Returns
+    -------
+    group : QGroupBox
+        A titled group box with the view buttons arranged as a compass (Top
+        centered above Right / Front / Left), plus a scale field and a
+        trackball/terrain interaction selector.
+    """
+    group = QGroupBox("View")
+    layout = QVBoxLayout(group)
 
-    # This should be Tuple, but it is broken on Anaconda as of 2016/12/16
-    color = RGBColor((1., 1., 1.))
-    # Due to a MESA bug, we use 0.99 opacity to force alpha blending
-    opacity = Range(low=0., high=1., value=0.99)
+    # compass-style button grid: Top centered above Right / Front / Left
+    grid = QGridLayout()
+    for name, (r, c) in (
+        ("top", (0, 1)),
+        ("right", (1, 0)),
+        ("front", (1, 1)),
+        ("left", (1, 2)),
+    ):
+        btn = QPushButton(name.capitalize())
+        btn.setObjectName("view_%s" % name)
+        btn.clicked.connect(lambda *_, v=name: headview.on_set_view(v))
+        grid.addWidget(btn, r, c)
+    layout.addLayout(grid)
+
+    # scale field + interaction selector
+    row = QHBoxLayout()
+    row.addWidget(QLabel("Scale:"))
+    scale = QDoubleSpinBox()
+    scale.setObjectName("view_scale")
+    scale.setDecimals(3)
+    scale.setRange(0.0, 1e6)
+    scale.setSingleStep(max(headview.scale / 20.0, 1e-3))
+    scale.setValue(headview.scale)
+    scale.valueChanged.connect(lambda v: setattr(headview, "scale", v))
+    headview.observe(lambda ch: scale.setValue(ch["new"]), names=["scale"])
+    row.addWidget(scale)
+
+    interaction = QComboBox()
+    interaction.setObjectName("view_interaction")
+    interaction.addItems(["trackball", "terrain"])
+    interaction.setCurrentText(headview.interaction)
+    interaction.currentTextChanged.connect(
+        lambda t: setattr(headview, "interaction", t)
+    )
+    headview.observe(
+        lambda ch: interaction.setCurrentText(ch["new"]), names=["interaction"]
+    )
+    row.addWidget(interaction)
+    layout.addLayout(row)
+
+    return group
+
+
+class Object(HasTraits):
+    """Represent a 3d object in a pyvista scene."""
+
+    points = Any()  # ndarray (n, 3)
+    name = Unicode()
+
+    scene = Any()  # pyvistaqt.QtInteractor
+    src = Any()  # pyvista.PolyData currently displayed
+
+    color = Any((1.0, 1.0, 1.0))  # RGB tuple
+    opacity = Float(0.99)
     visible = Bool(True)
 
-    def _update_points(self):
+    def __init__(
+        self,
+        *,
+        points: np.ndarray | None = None,
+        name: str = "",
+        scene: QtInteractor | None = None,
+        color: tuple[float, float, float] = (1.0, 1.0, 1.0),
+        opacity: float = 0.99,
+    ) -> None:
+        if points is None:
+            points = np.empty((0, 3))
+        super().__init__(
+            points=points,
+            name=name,
+            scene=scene,
+            color=color,
+            opacity=opacity,
+        )
+
+    def _update_points(self) -> bool | None:
         """Update the location of the plotted points."""
-        if hasattr(self.src, 'data'):
-            self.src.data.points = self.points
+        if self.src is not None and len(self.points) == self.src.n_points:
+            self.src.points = self.points
             return True
 
 
 class PointObject(Object):
-    """Represent a group of individual points in a mayavi scene."""
+    """Represent a group of individual points in a pyvista scene."""
 
     label = Bool(False)
     label_scale = Float(0.01)
-    projectable = Bool(False)  # set based on type of points
-    orientable = Property(depends_on=['nearest'])
-    text3d = List
-    point_scale = Float(10, label='Point Scale')
+    text3d_labels = List()
+    point_scale = Float(10)
 
-    # projection onto a surface
-    nearest = Instance(_DistanceQuery)
-    check_inside = Instance(_CheckInside)
-    project_to_trans = ArrayOrNone(float, shape=(4, 4))
-    project_to_surface = Bool(False, label='Project', desc='project points '
-                              'onto the surface')
-    orient_to_surface = Bool(False, label='Orient', desc='orient points '
-                             'toward the surface')
-    scale_by_distance = Bool(False, label='Dist.', desc='scale points by '
-                             'distance from the surface')
-    mark_inside = Bool(False, label='Mark', desc='mark points inside the '
-                       'surface in a different color')
-    inside_color = RGBColor((0., 0., 0.))
-
-    glyph = Instance(Glyph)
+    glyph = Any()  # pyvista Actor for the glyphed points
     resolution = Int(8)
 
-    view = View(HGroup(Item('visible', show_label=False),
-                       Item('color', show_label=False),
-                       Item('opacity')))
+    def __init__(
+        self,
+        *,
+        points: np.ndarray | None = None,
+        name: str = "",
+        scene: QtInteractor | None = None,
+        color: tuple[float, float, float] = (1.0, 1.0, 1.0),
+        opacity: float = 0.99,
+        point_scale: float = 10,
+    ) -> None:
+        super().__init__(
+            points=points, name=name, scene=scene, color=color, opacity=opacity
+        )
+        self.point_scale = point_scale
 
-    def __init__(self, view='points', has_norm=False, *args, **kwargs):
-        """Init.
+    @observe("scene")
+    def _scene_changed(self, change: Bunch) -> None:
+        if change["new"] is not None:
+            self._plot_points()
 
-        Parameters
-        ----------
-        view : 'points' | 'cloud' | 'arrow' | 'oct'
-            Whether the view options should be tailored to individual points
-            or a point cloud.
-        has_norm : bool
-            Whether a norm can be defined; adds view options based on point
-            norms (default False).
-        """
-        assert view in ('points', 'cloud', 'arrow', 'oct')
-        self._view = view
-        self._has_norm = bool(has_norm)
-        super(PointObject, self).__init__(*args, **kwargs)
+    @observe("label")
+    def _show_labels(self, change: Bunch) -> None:
+        show = change["new"]
+        while self.text3d_labels:
+            name = self.text3d_labels.pop()
+            self.scene.remove_actor(name)
 
-    def default_traits_view(self):  # noqa: D102
-        color = Item('color', show_label=False)
-        scale = Item('point_scale', label='Size', width=_SCALE_WIDTH,
-                     editor=laggy_float_editor_headscale)
-        orient = Item('orient_to_surface',
-                      enabled_when='orientable and not project_to_surface',
-                      tooltip='Orient points toward the surface')
-        dist = Item('scale_by_distance',
-                    enabled_when='orientable and not project_to_surface',
-                    tooltip='Scale points by distance from the surface')
-        mark = Item('mark_inside',
-                    enabled_when='orientable and not project_to_surface',
-                    tooltip='Mark points inside the surface using a different '
-                    'color')
-        if self._view == 'arrow':
-            visible = Item('visible', label='Show', show_label=False)
-            return View(HGroup(visible, scale, 'opacity', 'label', Spring()))
-        elif self._view in ('points', 'oct'):
-            visible = Item('visible', label='Show', show_label=True)
-            views = (visible, color, scale, 'label')
-        else:
-            assert self._view == 'cloud'
-            visible = Item('visible', show_label=False)
-            views = (visible, color, scale)
+        if show and self.scene is not None and len(self.points) > 0:
+            name = "%s-labels" % (self.name or id(self))
+            pts = self.points
+            labels = [" %i" % i for i in range(len(pts))]
+            self.scene.add_point_labels(
+                pts,
+                labels,
+                text_color=self.color,
+                shape=None,
+                show_points=False,
+                font_size=int(self.label_scale * 1000),
+                name=name,
+                always_visible=True,
+            )
+            self.text3d_labels.append(name)
 
-        if not self._has_norm:
-            return View(HGroup(*views))
-
-        group2 = HGroup(dist, Item('project_to_surface', show_label=True,
-                                   enabled_when='projectable',
-                                   tooltip='Project points onto the surface '
-                                   '(for visualization, does not affect '
-                                   'fitting)'),
-                        orient, mark, Spring(), show_left=False)
-        return View(HGroup(HGroup(*views), group2))
-
-    @on_trait_change('label')
-    def _show_labels(self, show):
-        _toggle_mlab_render(self, False)
-        while self.text3d:
-            text = self.text3d.pop()
-            text.remove()
-
-        if show and len(self.src.data.points) > 0:
-            fig = self.scene.mayavi_scene
-            if self._view == 'arrow':  # for axes
-                x, y, z = self.src.data.points[0]
-                self.text3d.append(text3d(
-                    x, y, z, self.name, scale=self.label_scale,
-                    color=self.color, figure=fig))
-            else:
-                for i, (x, y, z) in enumerate(np.array(self.src.data.points)):
-                    self.text3d.append(text3d(
-                        x, y, z, ' %i' % i, scale=self.label_scale,
-                        color=self.color, figure=fig))
-        _toggle_mlab_render(self, True)
-
-    @on_trait_change('visible')
-    def _on_hide(self):
-        if not self.visible:
+    @observe("visible")
+    def _on_hide(self, change: Bunch) -> None:
+        if not change["new"]:
             self.label = False
 
-    @on_trait_change('scene.activated')
-    def _plot_points(self):
-        """Add the points to the mayavi pipeline"""
+    def _plot_points(self) -> None:
+        """(Re)build the glyphed points and push them to the scene."""
         if self.scene is None:
             return
-        if hasattr(self.glyph, 'remove'):
-            self.glyph.remove()
-        if hasattr(self.src, 'remove'):
-            self.src.remove()
+        if self.glyph is not None:
+            self.scene.remove_actor(self.glyph)
+            self.glyph = None
+        self.src = None
 
-        _toggle_mlab_render(self, False)
-        x, y, z = self.points.T
-        fig = self.scene.mayavi_scene
-        scatter = pipeline.scalar_scatter(x, y, z, fig=fig)
-        if not scatter.running:
-            # this can occur sometimes during testing w/ui.dispose()
-            return
-        # fig.scene.engine.current_object is scatter
-        mode = {'cloud': 'sphere', 'points': 'sphere', 'oct': 'sphere'}.get(
-            self._view, self._view)
-        assert mode in ('sphere', 'arrow')
-        glyph = pipeline.glyph(scatter, color=self.color,
-                               figure=fig, scale_factor=self.point_scale,
-                               opacity=1., resolution=self.resolution,
-                               mode=mode)
-        if self._view == 'oct':
-            _oct_glyph(glyph.glyph.glyph_source, rotation(0, 0, np.pi / 4))
-        glyph.actor.property.backface_culling = True
-        glyph.glyph.glyph.vector_mode = 'use_normal'
-        glyph.glyph.glyph.clamping = False
-        if mode == 'arrow':
-            glyph.glyph.glyph_source.glyph_position = 'tail'
-
-        glyph.actor.mapper.color_mode = 'map_scalars'
-        glyph.actor.mapper.scalar_mode = 'use_point_data'
-        glyph.actor.mapper.use_lookup_table_scalar_range = False
-
-        self.src = scatter
-        self.glyph = glyph
-
-        self.sync_trait('point_scale', self.glyph.glyph.glyph, 'scale_factor')
-        self.sync_trait('color', self.glyph.actor.property, mutual=False)
-        self.sync_trait('visible', self.glyph)
-        self.sync_trait('opacity', self.glyph.actor.property)
-        self.sync_trait('mark_inside', self.glyph.actor.mapper,
-                        'scalar_visibility')
-        self.on_trait_change(self._update_points, 'points')
-        self._update_marker_scaling()
-        self._update_marker_type()
-        self._update_colors()
-        _toggle_mlab_render(self, True)
-        # self.scene.camera.parallel_scale = _scale
-
-    def _nearest_default(self):
-        return _DistanceQuery(np.zeros((1, 3)))
-
-    def _get_nearest(self, proj_rr):
-        idx = self.nearest.query(proj_rr)[1]
-        proj_pts = apply_trans(
-            self.project_to_trans, self.nearest.data[idx])
-        proj_nn = apply_trans(
-            self.project_to_trans, self.check_inside.surf['nn'][idx],
-            move=False)
-        return proj_pts, proj_nn
-
-    @on_trait_change('points,project_to_trans,project_to_surface,mark_inside,'
-                     'nearest')
-    def _update_projections(self):
-        """Update the styles of the plotted points."""
-        if not hasattr(self.src, 'data'):
-            return
-        if self._view == 'arrow':
-            self.src.data.point_data.normals = self.nn
-            self.src.data.point_data.update()
-            return
-        # projections
-        if len(self.nearest.data) <= 1 or len(self.points) == 0:
-            return
-
-        # Do the projections
         pts = self.points
-        inv_trans = np.linalg.inv(self.project_to_trans)
-        proj_rr = apply_trans(inv_trans, self.points)
-        proj_pts, proj_nn = self._get_nearest(proj_rr)
-        vec = pts - proj_pts  # point to the surface
-        if self.project_to_surface:
-            pts = proj_pts
-        nn = proj_nn
-        if self.mark_inside and not self.project_to_surface:
-            scalars = (~self.check_inside(proj_rr, verbose=False)).astype(int)
-        else:
-            scalars = np.ones(len(pts))
-        # With this, a point exactly on the surface is of size point_scale
-        dist = np.linalg.norm(vec, axis=-1, keepdims=True)
-        self.src.data.point_data.normals = (250 * dist + 1) * nn
-        self.src.data.point_data.scalars = scalars
-        self.glyph.actor.mapper.scalar_range = [0., 1.]
-        self.src.data.points = pts  # projection can change this
-        self.src.data.point_data.update()
-
-    @on_trait_change('color,inside_color')
-    def _update_colors(self):
-        if self.glyph is None:
-            return
-        # inside_color is the surface color, let's try to get far
-        # from that
-        inside = np.array(self.inside_color)
-        # if it's too close to gray, just use black:
-        if np.mean(np.abs(inside - 0.5)) < 0.2:
-            inside.fill(0.)
-        else:
-            inside = 1 - inside
-        colors = np.array([tuple(inside) + (1,),
-                           tuple(self.color) + (1,)]) * 255.
-        self.glyph.module_manager.scalar_lut_manager.lut.table = colors
-
-    @on_trait_change('project_to_surface,orient_to_surface')
-    def _update_marker_type(self):
-        # not implemented for arrow
-        if self.glyph is None or self._view == 'arrow':
-            return
-        defaults = DEFAULTS['coreg']
-        gs = self.glyph.glyph.glyph_source
-        res = getattr(gs.glyph_source, 'theta_resolution',
-                      getattr(gs.glyph_source, 'resolution', None))
-        if res is None:
-            return
-        if self.project_to_surface or self.orient_to_surface:
-            gs.glyph_source = tvtk.CylinderSource()
-            gs.glyph_source.height = defaults['eegp_height']
-            gs.glyph_source.center = (0., -defaults['eegp_height'], 0)
-            gs.glyph_source.resolution = res
-        else:
-            gs.glyph_source = tvtk.SphereSource()
-            gs.glyph_source.phi_resolution = res
-            gs.glyph_source.theta_resolution = res
-
-    @on_trait_change('scale_by_distance,project_to_surface')
-    def _update_marker_scaling(self):
-        if self.glyph is None:
-            return
-        if self.scale_by_distance and not self.project_to_surface:
-            self.glyph.glyph.scale_mode = 'scale_by_vector'
-        else:
-            self.glyph.glyph.scale_mode = 'data_scaling_off'
-
-    def _resolution_changed(self, new):
-        if not self.glyph:
-            return
-        gs = self.glyph.glyph.glyph_source.glyph_source
-        if isinstance(gs, tvtk.SphereSource):
-            gs.phi_resolution = new
-            gs.theta_resolution = new
-        elif isinstance(gs, tvtk.CylinderSource):
-            gs.resolution = new
-        else:  # ArrowSource
-            gs.tip_resolution = new
-            gs.shaft_resolution = new
-
-    @cached_property
-    def _get_orientable(self):
-        return len(self.nearest.data) > 1
-
-
-class SurfaceObject(Object):
-    """Represent a solid object in a mayavi scene.
-
-    Notes
-    -----
-    Doesn't automatically update plot because update requires both
-    :attr:`points` and :attr:`tris`. Call :meth:`plot` after updating both
-    attributes.
-    """
-
-    rep = Enum("Surface", "Wireframe")
-    tris = Array(int, shape=(None, 3))
-
-    surf = Instance(Surface)
-    surf_rear = Instance(Surface)
-    rear_opacity = Float(1.)
-
-    view = View(HGroup(Item('visible', show_label=False),
-                       Item('color', show_label=False),
-                       Item('opacity')))
-
-    def __init__(self, block_behind=False, **kwargs):  # noqa: D102
-        self._block_behind = block_behind
-        self._deferred_tri_update = False
-        super(SurfaceObject, self).__init__(**kwargs)
-
-    def clear(self):  # noqa: D102
-        if hasattr(self.src, 'remove'):
-            self.src.remove()
-        if hasattr(self.surf, 'remove'):
-            self.surf.remove()
-        if hasattr(self.surf_rear, 'remove'):
-            self.surf_rear.remove()
-        self.reset_traits(['src', 'surf'])
-
-    @on_trait_change('scene.activated')
-    def plot(self):
-        """Add the points to the mayavi pipeline"""
-        _scale = self.scene.camera.parallel_scale
-        self.clear()
-
-        if not np.any(self.tris):
+        if len(pts) == 0:
             return
 
-        fig = self.scene.mayavi_scene
-        surf = dict(rr=self.points, tris=self.tris)
-        normals = _create_mesh_surf(surf, fig=fig)
-        self.src = normals.parent
-        rep = 'wireframe' if self.rep == 'Wireframe' else 'surface'
-        # Add the opaque "inside" first to avoid the translucent "outside"
-        # from being occluded (gh-5152)
-        if self._block_behind:
-            surf_rear = pipeline.surface(
-                normals, figure=fig, color=self.color, representation=rep,
-                line_width=1)
-            surf_rear.actor.property.frontface_culling = True
-            self.surf_rear = surf_rear
-            self.sync_trait('color', self.surf_rear.actor.property,
-                            mutual=False)
-            self.sync_trait('visible', self.surf_rear, 'visible')
-            self.surf_rear.actor.property.opacity = self.rear_opacity
-            self.sync_trait(
-                'rear_opacity', self.surf_rear.actor.property, 'opacity')
-        surf = pipeline.surface(
-            normals, figure=fig, color=self.color, representation=rep,
-            line_width=1)
-        surf.actor.property.backface_culling = True
-        self.surf = surf
-        self.sync_trait('visible', self.surf, 'visible')
-        self.sync_trait('color', self.surf.actor.property, mutual=False)
-        self.sync_trait('opacity', self.surf.actor.property)
+        src = vtkSphereSource()
+        src.SetThetaResolution(self.resolution)
+        src.SetPhiResolution(self.resolution)
+        src.Update()
+        geom = pv.PolyData(src.GetOutput())
+        geom.compute_normals(
+            cell_normals=False,
+            point_normals=True,
+            split_vertices=False,
+            consistent_normals=False,
+            non_manifold_traversal=False,
+        )
 
-        self.scene.camera.parallel_scale = _scale
+        cloud = pv.PolyData(np.asarray(pts, float))
+        mesh = cloud.glyph(
+            orient=False, scale=False, factor=self.point_scale, geom=geom
+        )
 
-    @on_trait_change('tris')
-    def _update_tris(self):
-        self._deferred_tris_update = True
+        self.glyph = self.scene.add_mesh(
+            mesh,
+            opacity=self.opacity,
+            culling="back",
+            pickable=False,
+            name=self.name or None,
+            render=False,
+            smooth_shading=True,
+            color=self.color,
+        )
+        self.glyph.SetVisibility(self.visible)
+        self.src = mesh
+        self.scene.render()
 
-    @on_trait_change('points')
-    def _update_points(self):
-        # Nuke the tris before setting the points otherwise we can get
-        # a nasty segfault (gh-5728)
-        if self._deferred_tris_update and self.src is not None:
-            self.src.data.polys = None
-        if Object._update_points(self):
-            if self._deferred_tris_update:
-                self.src.data.polys = self.tris
-                self._deffered_tris_update = False
-            self.src.update()  # necessary for SurfaceObject since Mayavi 4.5.0
+    @observe("points", "resolution")
+    def _update_projections(self, change: Bunch) -> None:
+        """Rebuild the glyphed points after a style-affecting change."""
+        self._plot_points()
+
+    @observe("color")
+    def _color_changed(self, change: Bunch) -> None:
+        self._plot_points()
+
+    @observe("point_scale")
+    def _point_scale_changed(self, change: Bunch) -> None:
+        self._plot_points()
+
+    @observe("visible")
+    def _visible_changed(self, change: Bunch) -> None:
+        if self.glyph is not None:
+            self.glyph.SetVisibility(change["new"])
+            self.scene.render()
+
+    @observe("opacity")
+    def _opacity_changed(self, change: Bunch) -> None:
+        if self.glyph is not None:
+            self.glyph.prop.opacity = change["new"]
+            self.scene.render()
