@@ -8,7 +8,7 @@ import datetime
 from pathlib import Path
 
 import numpy as np
-from pyvistaqt import QtInteractor  # ty: ignore[unresolved-import]
+from pyvistaqt import QtInteractor
 
 from qtpy.QtWidgets import (
     QDialog,

@@ -7,7 +7,7 @@
 
 import numpy as np
 import pyvista as pv
-from pyvistaqt import QtInteractor  # ty: ignore[unresolved-import]
+from pyvistaqt import QtInteractor
 from vtkmodules.vtkFiltersSources import vtkSphereSource
 
 from qtpy.QtWidgets import (

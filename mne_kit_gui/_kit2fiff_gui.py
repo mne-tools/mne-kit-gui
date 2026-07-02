@@ -12,7 +12,7 @@ from pathlib import Path
 from threading import Thread
 
 import numpy as np
-from pyvistaqt import QtInteractor  # ty: ignore[unresolved-import]
+from pyvistaqt import QtInteractor
 
 from qtpy.QtWidgets import (
     QButtonGroup,
