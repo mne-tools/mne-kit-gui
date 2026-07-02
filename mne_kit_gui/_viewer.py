@@ -47,6 +47,7 @@ def embed_pyvista_scene(parent_widget: QWidget) -> QtInteractor:
         (``plotter.add_mesh``, ``plotter.camera``, etc.).
     """
     plotter = QtInteractor(parent_widget)
+    plotter.set_background((0.5, 0.5, 0.5))
     layout = parent_widget.layout()
     assert layout is not None  # the caller sets a layout before calling
     layout.addWidget(plotter)
