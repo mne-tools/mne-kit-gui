@@ -46,7 +46,11 @@ def embed_pyvista_scene(parent_widget: QWidget) -> QtInteractor:
         ``parent_widget`` and is used directly for all 3D plotting
         (``plotter.add_mesh``, ``plotter.camera``, etc.).
     """
-    plotter = QtInteractor(parent_widget)
+    # "three lights" is pyvista's port of mayavi's default "raymond" rig
+    # (three white camera lights at intensity 1.0/0.6/0.5); the default
+    # vtkLightKit has a weaker (0.75), warm-tinted key light that renders
+    # every color noticeably darker than the original mayavi GUI.
+    plotter = QtInteractor(parent_widget, lighting="three lights")
     plotter.set_background((0.5, 0.5, 0.5))
     layout = parent_widget.layout()
     assert layout is not None  # the caller sets a layout before calling
