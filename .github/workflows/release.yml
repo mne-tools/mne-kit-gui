@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
       - run: python -m pip install --upgrade pip build twine check-manifest packaging
       - run: check-manifest -v
       - run: python -m build --sdist --wheel
